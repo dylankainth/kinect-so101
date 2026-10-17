@@ -58,12 +58,34 @@ GRASP_MIN = 12.0           # jaws stopped above this (0-100) => something is bet
 AIM_SEARCH = [(0.0, 0.0), (0.012, 0.0), (-0.012, 0.0), (0.0, 0.012), (0.0, -0.012)]
 
 
+def kinect_retry(fn, what, tries=4):
+    """Run a camera step; if the Kinect stalls or fails to open, restart it and try again."""
+    from perception import block_pose as bp
+    last = None
+    for k in range(tries):
+        try:
+            return fn()
+        except (TimeoutError, RuntimeError) as e:
+            last = e
+            log.warning("Kinect trouble during %s (%s); restarting it (%d/%d)", what, e, k + 1, tries)
+            try:
+                bp.close()
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(3.0)
+    raise last
+
+
 def perceive_block():
     from perception.block_pose import get_block_xyz_robot, close
-    try:
-        pose = get_block_xyz_robot(n_frames=15)
-    finally:
-        close()
+
+    def once():
+        try:
+            return get_block_xyz_robot(n_frames=15)
+        finally:
+            close()
+
+    pose = kinect_retry(once, "block detection")
     if not pose.valid:
         raise SystemExit(f"block not found by the Kinect: {pose.reason}")
     log.info("block at %s, yaw %.0f deg (confidence %.2f, spread %.1f mm)", np.round(pose.xyz, 3),
@@ -80,6 +102,10 @@ def xy_from_pixel(intr, T, px, z_plane):
 
 
 def check_with_kinect(target):
+    return kinect_retry(lambda: _check_with_kinect(target), "final check")
+
+
+def _check_with_kinect(target):
     """Is the block inside the target circle? Uses depth when the block's depth is valid, and falls
     back to the block's pixel position on the table plane when it is not (shiny/shadowed top)."""
     from perception import block_pose as bp
@@ -269,7 +295,15 @@ def run_arm(frames, real, block_xyz=None):
             close = next(i for i, f in enumerate(frames) if f["gripper"] < frames[0]["gripper"] - 1e-6)
             result = "aborted"
             from perception.kinect import Kinect
-            cam = Kinect().start()
+            for _k in range(4):   # the Kinect sometimes needs a second try right after being closed
+                try:
+                    cam = Kinect().start()
+                    break
+                except RuntimeError as e:
+                    log.warning("Kinect did not open (%s); retrying", e)
+                    time.sleep(2.0)
+            else:
+                raise RuntimeError("Kinect would not open for the run")
             try:
                 status("moving to start pose")
                 segmented_move(arm, frames[0], dry_run=False)
