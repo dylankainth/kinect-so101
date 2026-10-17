@@ -1,0 +1,28 @@
+<mujoco model="so101_pick_place">
+  <include file="assets/so101/so101_sim.xml"/>
+  <option timestep="0.002" cone="elliptic" impratio="10" noslip_iterations="3"/>
+  <visual>
+    <headlight diffuse="0.7 0.7 0.7" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <global azimuth="140" elevation="-25"/>
+  </visual>
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
+    <material name="table_mat" rgba="0.75 0.7 0.6 1"/>
+    <material name="cube_mat" rgba="0.9 0.15 0.1 1"/>
+    <material name="target_mat" rgba="0.1 0.8 0.2 0.5"/>
+  </asset>
+  <worldbody>
+    <light pos="0.2 0 1.5" dir="0 0 -1" directional="true"/>
+    <!-- Table: top surface at world z=0 (robot base origin is on the table surface). -->
+    <geom name="table" type="box" pos="0.2 0 -0.025" size="0.45 0.45 0.025" material="table_mat"
+          friction="0.8 0.005 0.0001"/>
+    <!-- Target zone marker (visual only), centre (0.20,-0.12), radius 3 cm -->
+    <geom name="target_zone" type="cylinder" pos="0.20 -0.12 0.0005" size="0.03 0.0005" material="target_mat"
+          contype="0" conaffinity="0"/>
+    <body name="cube" pos="0.20 0.12 0.015">
+      <freejoint name="cube_joint"/>
+      <geom name="cube_geom" type="box" size="0.015 0.015 0.015" mass="0.02" material="cube_mat"
+            friction="0.8 0.01 0.001" condim="4"/>
+    </body>
+  </worldbody>
+</mujoco>
