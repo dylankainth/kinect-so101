@@ -71,14 +71,40 @@ def perceive_block():
     return np.asarray(pose.xyz, float), pose.yaw
 
 
+def xy_from_pixel(intr, T, px, z_plane):
+    """Where the camera ray through pixel px meets the horizontal plane z = z_plane (robot frame)."""
+    ray_c = np.array([(px[0] - intr["cx"]) / intr["fx"], (px[1] - intr["cy"]) / intr["fy"], 1.0])
+    ray = T[:3, :3] @ ray_c
+    origin = T[:3, 3]
+    return (origin + ray * (z_plane - origin[2]) / ray[2])[:2]
+
+
 def check_with_kinect(target):
-    from perception.block_pose import close
+    """Is the block inside the target circle? Uses depth when the block's depth is valid, and falls
+    back to the block's pixel position on the table plane when it is not (shiny/shadowed top)."""
+    from perception import block_pose as bp
+    from perception.block_detect import detect_block, load_config
     from perception.success import Region, check_success
+    region = Region.circle(target[0], target[1], SUCCESS_RADIUS)
     try:
-        ok, info = check_success(Region.circle(target[0], target[1], SUCCESS_RADIUS))
+        ok, info = check_success(region)
+        if info.get("detected", True):
+            return ok, info
+        kin = bp._get_kinect()
+        T = np.array(json.loads((ROOT / "perception" / "calib.json").read_text())["T_robot_cam"])
+        half = bp._settings()["block_size_m"] / 2
+        for _ in range(5):
+            rgb, _, d, _ = kin.get_frames()
+            det = detect_block(rgb, kin.depth_to_meters(d), load_config(), kin.intr)
+            if det.centroid_px is not None:
+                xy = xy_from_pixel(kin.intr, T, det.centroid_px, half)
+                inside = bool(np.linalg.norm(xy - np.asarray(target[:2])) <= SUCCESS_RADIUS)
+                return inside, dict(detected=True, via="pixel", xyz=(float(xy[0]), float(xy[1]), half),
+                                    reason=det.reason)
+            time.sleep(0.1)
+        return False, info
     finally:
-        close()
-    return ok, info
+        bp.close()
 
 
 def keyframes(plan):
@@ -330,6 +356,7 @@ def main():
     ap.add_argument("--yes", action="store_true", help="skip the GO prompt (stop_gui.py must be open)")
     ap.add_argument("--target2", type=float, nargs=2, metavar=("X", "Y"),
                     help="second spot for --practice (default: --target mirrored in y)")
+    ap.add_argument("--keep-going", action="store_true", help="with --practice: carry on after a failed cycle")
     ap.add_argument("--no-learn", action="store_true", help="no learned offsets: aim straight at the detected object")
     ap.add_argument("--practice", type=int, default=0, help="N pick-and-place cycles alternating between the spots")
     ap.add_argument("--object", help="profile in perception/config.json 'objects' (e.g. yellow_candy)")
@@ -365,6 +392,17 @@ def main():
                 log.warning("skipping attempt: %s", e)
                 ok, result, rec = False, "not-found", None
                 time.sleep(1.0)
+            if a.real:  # keep the evidence for every trial
+                import shutil
+                (control.DIR / "trials").mkdir(exist_ok=True)
+                for nm in ("pre_close", "post_close", "lifted"):
+                    src = control.DIR / f"{nm}.jpg"
+                    if src.exists():
+                        shutil.copy(src, control.DIR / "trials" / f"t{tries:02d}_{nm}.jpg")
+                        src.unlink()
+                with open(control.DIR / "trials" / "log.jsonl", "a") as f:
+                    f.write(json.dumps(dict(trial=tries, cycle=cycle + 1, ok=bool(ok), result=result,
+                                            rec=rec)) + chr(10))
             if rec is not None and a.real and not a.no_learn and result in ("done", "slipped", "missed"):
                 reward = {"done": 1.0, "slipped": 0.5, "missed": 0.0}[result]
                 if result == "done" and not ok:
@@ -377,7 +415,7 @@ def main():
             if ok or not a.real:
                 break
         delivered += ok
-        if not ok and a.practice:
+        if not ok and a.practice and not a.keep_going:
             log.info("cycle %d failed after %d attempts; stopping practice", cycle + 1, a.attempts)
             break
     if a.real:
