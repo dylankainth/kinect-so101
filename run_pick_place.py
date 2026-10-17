@@ -59,7 +59,7 @@ AIM_SEARCH = [(0.0, 0.0), (0.012, 0.0), (-0.012, 0.0), (0.0, 0.012), (0.0, -0.01
 
 
 COOL_BELOW_C = 42      # start an attempt only when every servo is below this
-COOL_MAX_WAIT_S = 900
+COOL_MAX_WAIT_S = 1800
 
 
 def wait_to_cool():
