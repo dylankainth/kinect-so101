@@ -153,17 +153,29 @@ class SafeArm:
         return False   # never swallow exceptions / KeyboardInterrupt
 
     # ------------------------------------------------------------------ raw access
+    def _unstick(self):
+        """A transaction that died mid-way (USB glitch) leaves the SDK's busy flag set, after which every
+        call fails with 'Port is in use!'. This code never talks to the bus from two threads, so the flag
+        can safely be cleared before each call."""
+        try:
+            self.bus.port_handler.is_using = False
+        except AttributeError:
+            pass
+
     def _read1(self, reg, joint):
+        self._unstick()
         return self.bus.read(reg, joint, normalize=False, num_retry=BUS_RETRIES)
 
     def _write(self, reg, joint, val):
         if not self.allow_writes:
             raise PermissionError(f"write {reg}={val} to {joint} blocked: SafeArm(allow_writes=False)")
+        self._unstick()
         self.bus.write(reg, joint, int(val), normalize=False, num_retry=BUS_RETRIES)
 
     def _sync_write(self, reg, vals):
         if not self.allow_writes:
             raise PermissionError(f"sync_write {reg} blocked: SafeArm(allow_writes=False)")
+        self._unstick()
         self.bus.sync_write(reg, {k: int(v) for k, v in vals.items()}, normalize=False)
 
     # ------------------------------------------------------------------ unit conversion
@@ -190,6 +202,7 @@ class SafeArm:
 
     # ------------------------------------------------------------------ reads
     def read_raw(self):
+        self._unstick()
         return self.bus.sync_read("Present_Position", normalize=False, num_retry=BUS_RETRIES)
 
     def read_positions(self):

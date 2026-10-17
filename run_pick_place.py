@@ -58,6 +58,25 @@ GRASP_MIN = 12.0           # jaws stopped above this (0-100) => something is bet
 AIM_SEARCH = [(0.0, 0.0), (0.012, 0.0), (-0.012, 0.0), (0.0, 0.012), (0.0, -0.012)]
 
 
+COOL_BELOW_C = 42      # start an attempt only when every servo is below this
+COOL_MAX_WAIT_S = 900
+
+
+def wait_to_cool():
+    """The gripper servo stalls against the block for the whole carry and warms up; let it cool first."""
+    t0 = time.time()
+    while True:
+        with SafeArm(allow_writes=False) as arm:
+            temps = arm.bus.sync_read("Present_Temperature", normalize=False, num_retry=3)
+        hot = max(temps.values())
+        if hot < COOL_BELOW_C:
+            return
+        if time.time() - t0 > COOL_MAX_WAIT_S:
+            raise SystemExit(f"servos still at {hot} C after {COOL_MAX_WAIT_S // 60} min: stopping")
+        status(f"cooling down: hottest servo {hot} C, waiting for < {COOL_BELOW_C} C")
+        time.sleep(20)
+
+
 def kinect_retry(fn, what, tries=4):
     """Run a camera step; if the Kinect stalls or fails to open, restart it and try again."""
     from perception import block_pose as bp
@@ -460,6 +479,8 @@ def main():
 def attempt_once(a, block, learner=None):
     """Perceive (unless given), plan with the learner's grasp offset, rehearse, run.
     Returns (success, arm result, record for the learner)."""
+    if a.real:
+        wait_to_cool()
     block, yaw = (block, 0.0) if block is not None else perceive_block()
     if getattr(a, "practice_spots", None):
         # always carry it to the spot farther from where it is now, so a block that did not move
