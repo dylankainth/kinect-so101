@@ -26,6 +26,13 @@ wrist roll is slightly off for negative block yaw.
 An earlier 10-trial run, scored by the same method on its 8 valid trials (two carried the block under 4 cm
 and were excluded), delivered 6 / 8 on a single attempt.
 
+## Second run, 18 cycles (2026-10-17, evening)
+
+18 cycles delivered. The first 16 used 18 attempts; the next 2 cycles used a further 2 attempts.
+First-attempt misses: 2 of 16 (block yaw +45 and -20 degrees). The earlier negative-yaw hypothesis is not
+supported: 8 first attempts at yaw -17 to -42 degrees all succeeded. Both runs were interrupted by the 5 V
+supply sagging while torque was enabled ("Input voltage error"); `enable_torque` now waits and retries.
+
 ## What made it work
 
 1. Depth-based kinematic calibration (`calib_joints.py`): fits joint zero offsets and the camera pose to the

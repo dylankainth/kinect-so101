@@ -241,7 +241,18 @@ class SafeArm:
                 raise SafetyAbort(f"{j} load {l} > {lim} (of 1000): holding position")
 
     # ------------------------------------------------------------------ torque
-    def enable_torque(self):
+    def enable_torque(self, tries=4):
+        """enable_torque_once, retried when the weak supply sags and a servo reports an input voltage error."""
+        for i in range(tries):
+            try:
+                return self._enable_torque_once()
+            except RuntimeError as e:
+                if "voltage" not in str(e).lower() or i == tries - 1:
+                    raise
+                log.warning("supply sagged while enabling torque (%s): retry %d/%d", e, i + 1, tries - 1)
+                time.sleep(3.0)
+
+    def _enable_torque_once(self):
         """Hold-in-place torque enable. Writes goal=present FIRST, then gentle gains, then torque."""
         if not self.allow_writes:
             raise PermissionError("enable_torque blocked: SafeArm(allow_writes=False)")
