@@ -95,6 +95,36 @@
         ],
         "TACTILE": false
       }
+    },
+    "white_cylinder": {
+      "detect": {
+        "h_lo": 0,
+        "h_hi": 179,
+        "s_lo": 0,
+        "s_hi": 70,
+        "v_lo": 170,
+        "v_hi": 255,
+        "min_area_px": 60,
+        "max_area_px": 700,
+        "min_fill": 0.45,
+        "roi": [
+          40,
+          240,
+          490,
+          445
+        ],
+        "exclude": [],
+        "close_px": 5
+      },
+      "pose": {
+        "block_size_m": 0.055,
+        "yaw_period": 1.5707963
+      },
+      "run": {
+        "GRASP_Z_RAISE": 0.004,
+        "GRASP_MIN": 12.0,
+        "YAW_PERIOD": 1.5707963
+      }
     }
   },
   "block": {
