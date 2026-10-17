@@ -87,7 +87,7 @@ def check_with_kinect(target):
     from perception.success import Region, check_success
     region = Region.circle(target[0], target[1], SUCCESS_RADIUS)
     try:
-        ok, info = check_success(region)
+        ok, info = check_success(region, z_tol=0.03)  # the block's height depends on which face is up
         if info.get("detected", True):
             return ok, info
         kin = bp._get_kinect()
@@ -375,6 +375,7 @@ def main():
     cycles = max(1, a.practice)
     delivered = tries = 0
     for cycle in range(cycles):
+        a.practice_spots = spots if a.practice else None   # the target is chosen per attempt, from where the block is
         a.target = spots[cycle % 2] if a.practice else spots[0]
         ok = False
         for attempt in range(1, a.attempts + 1):
@@ -401,7 +402,8 @@ def main():
                         shutil.copy(src, control.DIR / "trials" / f"t{tries:02d}_{nm}.jpg")
                         src.unlink()
                 with open(control.DIR / "trials" / "log.jsonl", "a") as f:
-                    f.write(json.dumps(dict(trial=tries, cycle=cycle + 1, ok=bool(ok), result=result,
+                    f.write(json.dumps(dict(trial=tries, cycle=cycle + 1, attempt=attempt, target=[float(v) for v in a.target],
+                                            ok=bool(ok), result=result,
                                             rec=rec)) + chr(10))
             if rec is not None and a.real and not a.no_learn and result in ("done", "slipped", "missed"):
                 reward = {"done": 1.0, "slipped": 0.5, "missed": 0.0}[result]
@@ -425,6 +427,12 @@ def attempt_once(a, block, learner=None):
     """Perceive (unless given), plan with the learner's grasp offset, rehearse, run.
     Returns (success, arm result, record for the learner)."""
     block, yaw = (block, 0.0) if block is not None else perceive_block()
+    if getattr(a, "practice_spots", None):
+        # always carry it to the spot farther from where it is now, so a block that did not move
+        # (a failed trial) is still asked to travel a real distance
+        far = max(a.practice_spots, key=lambda sp: np.linalg.norm(np.asarray(block[:2]) - sp))
+        a.target = far
+        log.info("block is at %s: carrying it to %s", np.round(block[:2], 3), np.round(far, 3))
     if a.real and np.linalg.norm(block[:2] - REST_GRIPPER_XY) < 0.07:
         raise SystemExit(f"block at {np.round(block, 3)} is where the folded gripper rests: it is probably "
                          "still in the jaws. Take it out and put it back on the table.")
