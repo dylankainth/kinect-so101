@@ -26,12 +26,13 @@ wrist roll is slightly off for negative block yaw.
 An earlier 10-trial run, scored by the same method on its 8 valid trials (two carried the block under 4 cm
 and were excluded), delivered 6 / 8 on a single attempt.
 
-## Second run, 18 cycles (2026-10-17, evening)
+## Second run, 20 cycles (2026-10-17, evening)
 
-18 cycles delivered. The first 16 used 18 attempts; the next 2 cycles used a further 2 attempts.
-First-attempt misses: 2 of 16 (block yaw +45 and -20 degrees). The earlier negative-yaw hypothesis is not
-supported: 8 first attempts at yaw -17 to -42 degrees all succeeded. Both runs were interrupted by the 5 V
-supply sagging while torque was enabled ("Input voltage error"); `enable_torque` now waits and retries.
+20 cycles delivered, in three sessions because the 5 V supply sagged while torque was enabled
+("Input voltage error") twice; `enable_torque` now waits and retries. The first 16 cycles took 18 attempts
+(first attempt succeeded in 14 of 16). Of the 4 misses over the whole evening, the block yaws were +45, -20 and
+one unlogged during a Kinect stall. The earlier negative-yaw hypothesis is not supported: 8 first attempts at
+yaw -17 to -42 degrees all succeeded.
 
 ## What made it work
 
