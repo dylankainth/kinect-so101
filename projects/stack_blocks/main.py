@@ -131,8 +131,9 @@ PLACE_HOVERS = (PLACE_HOVER, 0.025, 0.02, 0.015)   # tried in turn: high stacks 
 TUNINGS = (dict(), dict(place_raise=0.0), dict(place_raise=0.0, open=1.0), dict(place_raise=0.004, open=1.0),
            dict(place_raise=0.0, open=0.9, hovers=(0.025, 0.02, 0.015)), dict(place_raise=0.012),
            dict(place_raise=0.0, open=1.4))
-PLACE_YAW_TRIM = np.radians(-8.2)   # the placed block lands this much rotated the other way (4 real trials, 2026-10-19:
-                            # top block +6.9..+9.8 deg from the base): aim this far off the stack's yaw to cancel it
+PLACE_YAW_TRIM = np.radians(-11.8)  # aim this far off the stack's yaw: the placed block lands about this much rotated
+                            # the other way. 9 real trials at trims -8.2/-16.4/-24.6 deg, 2026-10-19: yaw error =
+                            # 10.3 + 0.87 * trim (deg), 2.7 deg scatter, zero at -11.8
 RELEASE_CLEAR = 0.015       # m, slide the open gripper this far from the placed block before lifting (see
                             # plan_pick_place release_clear)
 SIM_HOLD = 0.08             # rad: how hard the rehearsal's jaws hold the box. A 3 cm box stalls the sim jaws at about

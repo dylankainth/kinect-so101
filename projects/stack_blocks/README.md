@@ -39,25 +39,35 @@ It stops instead of guessing when the table is not as expected: the camera does 
   0.18-0.30 m. Put the blocks around x = 0.26 m, y = -0.15 / -0.05 / +0.05 (long sides along x), clear of the
   calibration marker and the parked gripper (x below about 0.20 near y = -0.08).
 
-## Status (2026-10-19)
+## Status (2026-10-20)
 
-Working, verified on the real camera: `--look` finds the three boxes (8.0-8.3 x 4.9-5.0 cm, level 1, jaw-closing
-direction from the short side). Verified without the arm: depth detection on rendered scenes (1-2 mm), the
-real-run control flow against fakes (`tests/`), and the planner changes (`place_z`, `gripper_open`,
-`held_width`), with the default pick-and-place unchanged.
+**Two-high stacks of flat 8 x 5 x 3 cm boxes work on the real arm, to about 2 mm and 3 deg.** Six trials in a row
+(`python -m projects.stack_blocks.trials`: stack, measure the top block against the base block, unstack, repeat):
+across the base +0.3 +- 1.2 mm, along it +1.0 +- 1.0 mm, yaw -0.7 +- 1.4 deg, none failed. Lay the boxes flat
+(`--object box8x5`, the default), long sides away from the arm, at least 9 cm apart, at x about 0.25-0.30.
+Standing them on their 8 x 3 edge does not work: a stack of those has about 7 mm of tolerance and tips.
 
-**Blocked: the sim rehearsal of the 8 x 5 x 3 cm boxes fails, so nothing was run on the real arm.** The cause is
-the gripper, not the planning:
+What it took (in the order it was found, all on the real arm):
 
-* The SO-101 moving jaw swings on an arc: open, its pad is about 5 cm above the box centre, and it comes down as it
-  closes. Across a 5 cm side it reaches the box face above the top of a 3 cm tall box, so it lands on the top edge
-  (pad centre inside the box footprint at the grasp). The box is lifted by friction and slides off when the jaws
-  open. A 3 cm cube is narrow enough that the arc has come down in time.
-* The grasp point is also not the middle of the open jaws (gap centre about 0.9 cm off, with the fixed pad at
-  +2.35 cm and the moving pad at -4.11 cm at 0.8 rad). `plan_pick_place(..., held_width=...)` corrects for this
-  (verified: with it the box is lifted, carried and put on the stack at the right place).
-* Tilting the gripper (0.3 / 0.45 rad) does not change the result.
+* **Camera calibration.** The Kinect had moved 83 mm sideways; every pick was aimed at the wrong place.
+  `python -m core.calibration.calib_joints` re-fits it from the arm itself (clear the mat first; it hovers low).
+  `core.calibration.handeye_auto` is not usable: from above it sees the gripper body, not the jaw tips (it fitted a
+  90 mm z offset), so its `control/handeye.json` must not be left in place (`core.motion.aim` would apply it).
+* **Wrist roll.** The place roll is only fixed modulo the block's symmetry; taking the one nearest the pick roll
+  (not the smallest |roll|) stops a 160 deg turn that swung the off-centre held block 4-5 cm.
+* **Release.** The open gripper slides 1.5 cm along the closing axis, away from the fixed pad, before lifting
+  (`RELEASE_CLEAR`); lifting straight up dragged the block off the stack.
+* **Held-block offset** (`held_width`): the grasp point is not the middle of the open jaws (moving jaw swings on an
+  arc), so the pick and the place are shifted onto the jaw gap.
+* **Place yaw trim** (`PLACE_YAW_TRIM`, -11.8 deg): fitted from 9 trials at three trims (yaw error = 10.3 + 0.87 *
+  trim, 2.7 deg scatter).
+* **Servo temperature abort** needs two hot reads in a row; a single corrupted packet read 62 C off a 31 C servo.
 
-Ways forward: 3 cm cubes (`--object cube3`) are within what the gripper has done before; taller or wider blocks
-(the arc then meets the side lower), a taller moving-jaw pad, or a different grip would be needed for the boxes.
-The rehearsal gate stays on: a failed rehearsal stops the run before the real arm moves.
+**The sim rehearsal does not predict the real arm for these boxes.** It fails every variant (the box is released
+tilted on small pads and slides off), including moves the real arm does fine. Use `--skip-rehearsal` (or
+`--tune 0` for none at all, which the trial loop does). The sim is still right about reach. `--show-sim` plays each
+rehearsal in the MuJoCo viewer, `--tune N` tries up to N release variants (`TUNINGS`), and
+`python -m core.tools.kinect_live` shows the live camera with the planner's pick and place targets.
+
+Not done yet: three-high on the real arm (the planner handles layer 3; flat layers are only 3 cm each, so reach is
+not an issue), and a camera check-and-correct step after each place (it would only tighten the result by 1-2 mm).

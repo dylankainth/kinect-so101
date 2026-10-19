@@ -48,6 +48,8 @@ def main():
     ap.add_argument("--object", choices=sorted(sb.OBJECTS), default="box8x5")
     ap.add_argument("--base", type=float, nargs=2, metavar=("X", "Y"), help="where the stack is built (default: the "
                     "block nearest the middle of the mat)")
+    ap.add_argument("--trims", type=float, nargs="+", metavar="DEG", help="place-yaw trims to cycle through, one per "
+                    "trial (default: the PLACE_YAW_TRIM in main.py); the log says which one each trial used")
     ap.add_argument("--tune", type=int, default=0, help="sim rehearsal variants per move (0 = none, the default)")
     ap.add_argument("--real", action="store_true")
     ap.add_argument("--yes", action="store_true", help="skip the GO prompts (stop_gui.py must be open)")
@@ -68,7 +70,7 @@ def main():
     out.mkdir(exist_ok=True)
     path = out / time.strftime("stack_trials_%Y%m%d_%H%M%S.csv")
     cols = ["trial", "base_x", "base_y", "base_yaw_deg", "top_x", "top_y", "top_yaw_deg", "err_short_mm",
-            "err_long_mm", "err_yaw_deg", "top_z_cm", "seconds"]
+            "err_long_mm", "err_yaw_deg", "top_z_cm", "seconds", "trim_deg", "loose_yaw_deg"]
     rows = []
     sa = sb.make_args(count=2, object=a.object, base=list(base_xy), real=True, yes=a.yes, attempts=1, tune=a.tune,
                       skip_rehearsal=True)
@@ -78,26 +80,35 @@ def main():
         base, _ = sb.split(obs, base_xy)
         if base is None or len(obs) != 2 or any(b.level != 1 for b in obs):
             raise SystemExit(f"trial {i}: expected two level-1 blocks, the camera sees: {sb.describe(obs)}")
+        loose_yaw = next(b.yaw for b in obs if b is not base)
+        trim = a.trims[(i - 1) % len(a.trims)] if a.trims else float(np.degrees(sb.PLACE_YAW_TRIM))
+        sb.PLACE_YAW_TRIM = np.radians(trim)
         top = sb.run(sa)
         if top is None or top.level != 2:
             raise SystemExit(f"trial {i}: the stack did not reach two high")
         es, el, ey = placement_error(base, top, obj.period)
         row = dict(trial=i, base_x=base.xy[0], base_y=base.xy[1], base_yaw_deg=np.degrees(base.yaw), top_x=top.xy[0],
                    top_y=top.xy[1], top_yaw_deg=np.degrees(top.yaw), err_short_mm=es * 1000, err_long_mm=el * 1000,
-                   err_yaw_deg=ey, top_z_cm=top.top_z * 100, seconds=time.time() - t0)
+                   err_yaw_deg=ey, top_z_cm=top.top_z * 100, seconds=time.time() - t0, trim_deg=trim,
+                   loose_yaw_deg=np.degrees(loose_yaw))
         rows.append(row)
         with open(path, "w", newline="") as f:
             w = csv.DictWriter(f, cols)
             w.writeheader()
             w.writerows({k: round(v, 3) for k, v in r.items()} for r in rows)
         log.info("TRIAL %d: top block is %+.1f mm along the base's short axis, %+.1f mm along its long axis, "
-                 "%+.1f deg of yaw", i, es * 1000, el * 1000, ey)
+                 "%+.1f deg of yaw (place-yaw trim %+.1f deg)", i, es * 1000, el * 1000, ey, trim)
         if i < a.n:
             result = unstack(sa, obj, base_xy, park_xy)
             if result != "done" or motion.ABORTED:
                 raise SystemExit(f"trial {i}: unstacking returned {result!r}; stopping")
             time.sleep(1.0)
 
+    if len({r["trim_deg"] for r in rows}) > 1:
+        print("\nyaw error by place-yaw trim:")
+        for tr in sorted({r["trim_deg"] for r in rows}):
+            ys = [r["err_yaw_deg"] for r in rows if r["trim_deg"] == tr]
+            print(f"  trim {tr:+6.1f} deg: yaw error {np.mean(ys):+6.1f} deg (n={len(ys)}, spread {np.std(ys):.1f})")
     E = np.array([[r["err_short_mm"], r["err_long_mm"], r["err_yaw_deg"]] for r in rows])
     print(f"\n{len(rows)} trials, log: {path}")
     print("             mean (bias)   std (scatter)   worst")
