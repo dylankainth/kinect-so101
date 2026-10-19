@@ -1,4 +1,4 @@
-"""Flag files shared by the stop button (stop_gui.py) and the arm runner.
+"""Flag files shared by the stop button (core/tools/stop_gui.py) and the arm runner.
 
 control/stop   - abort the current motion and hold position
 control/park   - (after a stop) return slowly to the rest pose, then go limp
@@ -7,9 +7,9 @@ control/heartbeat - touched by the runner while it owns the serial port
 control/status - one line of runner status shown in the GUI
 """
 import time
-from pathlib import Path
+from .paths import CONTROL_DIR
 
-DIR = Path(__file__).parent / "control"
+DIR = CONTROL_DIR
 DIR.mkdir(exist_ok=True)
 STOP, PARK, LIMP = DIR / "stop", DIR / "park", DIR / "limp"
 HEARTBEAT, STATUS = DIR / "heartbeat", DIR / "status"

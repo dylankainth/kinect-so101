@@ -1,46 +1,37 @@
 """Kinect -> planner -> SO-101: move the block from where it is to the target, then check with the Kinect.
 
-    python run_pick_place.py                 # perceive, plan, rehearse in MuJoCo, dry-run on the arm (no motion)
-    python run_pick_place.py --viewer        # same, with the MuJoCo viewer
-    python run_pick_place.py --real          # REAL MOTION: asks you to type GO first
-    python run_pick_place.py --block 0.20 0.12 0.015   # skip perception, use this block centre (m)
+    python -m projects.pick_place.run_pick_place                 # perceive, plan, rehearse in MuJoCo, dry-run on the arm (no motion)
+    python -m projects.pick_place.run_pick_place --viewer        # same, with the MuJoCo viewer
+    python -m projects.pick_place.run_pick_place --real          # REAL MOTION: asks you to type GO first
+    python -m projects.pick_place.run_pick_place --block 0.20 0.12 0.015   # skip perception, use this block centre (m)
+
+(run from the repo root)
 
 Frames: robot base frame, metres, x forward, y left, z up, origin on the table at the pan axis
-(same in sim/, perception/calib.json and robot/). The real run starts and ends at the arm's current
+(same in core/sim, core/perception/calib.json and core/robot). The real run starts and ends at the arm's current
 (rest) pose, so torque is only dropped once the arm is folded back down.
 """
 import argparse
 import json
 import logging
 import math
-import sys
 import time
-from pathlib import Path
 
 import numpy as np
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT / "sim"))  # sim modules import each other by bare name
-
-from pick_place import plan_pick_place, execute_plan, PLAN_DT, GRIPPER_OPEN  # noqa: E402
-from robot.arm import SafeArm, JOINTS  # noqa: E402
-from robot.mapping import sim_to_real  # noqa: E402
-import control  # noqa: E402
+from core import control, motion
+from core.motion import (GRIP_CLOSED_CMD, REAL_SPEED_DEG_S, REST_POSE, STREAM_HZ, aim, fixed_jaw_dir,
+                         hold_until_user, keyframes, segmented_move, status, wait_to_cool)
+from core.paths import CALIB_PATH, CORE
+from core.perception.util import kinect_retry, perceive_block, snapshot, xy_from_pixel
+from core.robot.arm import SafeArm, JOINTS
+from core.sim.pick_place import plan_pick_place, execute_plan, PLAN_DT
 
 log = logging.getLogger("pick_place")
 
 DEFAULT_TARGET = (0.20, -0.12)
 SUCCESS_RADIUS = 0.04       # m, block centre must end within this of the target
-REAL_SPEED_DEG_S = 25.0     # cap for the real arm (sim plan peaks ~40 deg/s)
-SEGMENT_DEG = 25.0          # max joint change per move_to call when getting to/from the start pose
-STREAM_HZ = 25.0            # goal positions per second streamed to the real arm
-TIME_SCALE = 1.5            # real run takes 1.5x the sim plan's duration (peak ~27 deg/s)
 RADIAL_OFFSET = 0.02        # m; real jaws landed ~2 cm short of the model at ~30 cm reach (run 5)
-REAL_GRIPPER_OPEN = 70.0    # real 0-100 opening used where the plan says "open"
-GRIP_CLOSED_CMD = 1.0       # "closed" command; the jaws stall on the block and squeeze (run 8 slipped at 6)
-# folded back against the shoulder/elbow stops: stable when the torque goes off
-REST_POSE = {"shoulder_pan": -4.6, "shoulder_lift": -97.0, "elbow_flex": 94.0, "wrist_flex": 80.0,
-             "wrist_roll": 0.0, "gripper": 30.0}
 REST_GRIPPER_XY = np.array([0.29, 0.13])  # where the jaws lie when the arm is folded (Kinect view)
 WORLD_AIM_OFFSET = np.array([0.0, 0.0])  # m in the robot frame, added to every pick and place aim
 FIXED_GRASP_Z = None        # m; set per object profile to grasp at a fixed height
@@ -58,68 +49,6 @@ GRASP_MIN = 12.0           # jaws stopped above this (0-100) => something is bet
 AIM_SEARCH = [(0.0, 0.0), (0.012, 0.0), (-0.012, 0.0), (0.0, 0.012), (0.0, -0.012)]
 
 
-COOL_BELOW_C = 42      # start an attempt only when every servo is below this
-COOL_MAX_WAIT_S = 1800
-
-
-def wait_to_cool():
-    """The gripper servo stalls against the block for the whole carry and warms up; let it cool first."""
-    t0 = time.time()
-    while True:
-        with SafeArm(allow_writes=False) as arm:
-            temps = arm.bus.sync_read("Present_Temperature", normalize=False, num_retry=3)
-        hot = max(temps.values())
-        if hot < COOL_BELOW_C:
-            return
-        if time.time() - t0 > COOL_MAX_WAIT_S:
-            raise SystemExit(f"servos still at {hot} C after {COOL_MAX_WAIT_S // 60} min: stopping")
-        status(f"cooling down: hottest servo {hot} C, waiting for < {COOL_BELOW_C} C")
-        time.sleep(20)
-
-
-def kinect_retry(fn, what, tries=4):
-    """Run a camera step; if the Kinect stalls or fails to open, restart it and try again."""
-    from perception import block_pose as bp
-    last = None
-    for k in range(tries):
-        try:
-            return fn()
-        except (TimeoutError, RuntimeError) as e:
-            last = e
-            log.warning("Kinect trouble during %s (%s); restarting it (%d/%d)", what, e, k + 1, tries)
-            try:
-                bp.close()
-            except Exception:  # noqa: BLE001
-                pass
-            time.sleep(3.0)
-    raise last
-
-
-def perceive_block():
-    from perception.block_pose import get_block_xyz_robot, close
-
-    def once():
-        try:
-            return get_block_xyz_robot(n_frames=15)
-        finally:
-            close()
-
-    pose = kinect_retry(once, "block detection")
-    if not pose.valid:
-        raise SystemExit(f"block not found by the Kinect: {pose.reason}")
-    log.info("block at %s, yaw %.0f deg (confidence %.2f, spread %.1f mm)", np.round(pose.xyz, 3),
-             np.degrees(pose.yaw), pose.confidence, pose.spread_m * 1000)
-    return np.asarray(pose.xyz, float), pose.yaw
-
-
-def xy_from_pixel(intr, T, px, z_plane):
-    """Where the camera ray through pixel px meets the horizontal plane z = z_plane (robot frame)."""
-    ray_c = np.array([(px[0] - intr["cx"]) / intr["fx"], (px[1] - intr["cy"]) / intr["fy"], 1.0])
-    ray = T[:3, :3] @ ray_c
-    origin = T[:3, 3]
-    return (origin + ray * (z_plane - origin[2]) / ray[2])[:2]
-
-
 def check_with_kinect(target):
     return kinect_retry(lambda: _check_with_kinect(target), "final check")
 
@@ -127,16 +56,16 @@ def check_with_kinect(target):
 def _check_with_kinect(target):
     """Is the block inside the target circle? Uses depth when the block's depth is valid, and falls
     back to the block's pixel position on the table plane when it is not (shiny/shadowed top)."""
-    from perception import block_pose as bp
-    from perception.block_detect import detect_block, load_config
-    from perception.success import Region, check_success
+    from core.perception import block_pose as bp
+    from core.perception.block_detect import detect_block, load_config
+    from core.perception.success import Region, check_success
     region = Region.circle(target[0], target[1], SUCCESS_RADIUS)
     try:
         ok, info = check_success(region, z_tol=0.03)  # the block's height depends on which face is up
         if info.get("detected", True):
             return ok, info
         kin = bp._get_kinect()
-        T = np.array(json.loads((ROOT / "perception" / "calib.json").read_text())["T_robot_cam"])
+        T = np.array(json.loads((CALIB_PATH).read_text())["T_robot_cam"])
         half = bp._settings()["block_size_m"] / 2
         for _ in range(5):
             rgb, _, d, _ = kin.get_frames()
@@ -152,110 +81,6 @@ def _check_with_kinect(target):
         bp.close()
 
 
-def keyframes(plan):
-    """Resample the 50 Hz sim plan onto the real streaming rate, slowed down by TIME_SCALE."""
-    q = np.array([[wp[j] for j in JOINTS] for wp in plan])
-    t_src = np.arange(len(plan)) * PLAN_DT * TIME_SCALE
-    t_dst = np.arange(0.0, t_src[-1] + 1e-9, 1.0 / STREAM_HZ)
-    out = [dict(zip(JOINTS, (np.interp(t, t_src, q[:, i]) for i in range(len(JOINTS))))) for t in t_dst]
-    frames = [sim_to_real(wp) for wp in out]
-    open_sim = math.degrees(GRIPPER_OPEN)
-    for f in frames:
-        # sim "closed" squeezes past the jaw limit (real fully-closed is the soft limit); the real
-        # jaw opens wider than the sim's open command for more margin around the block
-        g = max(f["gripper"], 1.0)
-        f["gripper"] = GRIP_CLOSED_CMD + (g - 1.0) * (REAL_GRIPPER_OPEN - GRIP_CLOSED_CMD) / (open_sim - 1.0)
-    return frames
-
-
-HANDEYE = ROOT / "control" / "handeye.json"
-ABORTED = False
-
-
-def aim(xyz, radial_offset, tangential=0.0):
-    """Where the model must aim so the real jaws land on xyz.
-
-    Uses the measured hand-eye fit (handeye_auto.py: real = A @ model + b, z offset dz) when it
-    exists; otherwise pushes the point radially out by radial_offset (the arm lands short)."""
-    p = np.array(xyz, float)
-    if HANDEYE.exists():
-        h = json.loads(HANDEYE.read_text())
-        p[:2] = np.linalg.solve(np.array(h["A"]), p[:2] - np.array(h["b"]))
-        p[2] -= h["dz"]
-        return p
-    r = np.linalg.norm(p[:2])
-    if r > 1e-6:
-        u = p[:2] / r
-        p[:2] += radial_offset * u + tangential * np.array([-u[1], u[0]])
-    return p
-
-
-def segmented_move(arm, target, dry_run):
-    """Go to a possibly far pose in chunks no bigger than SEGMENT_DEG per joint."""
-    cur = arm.read_positions()
-    big = max(abs(target[j] - cur[j]) for j in JOINTS)
-    n = max(1, math.ceil(big / SEGMENT_DEG))
-    for i in range(1, n + 1):
-        arm.move_to({j: cur[j] + (target[j] - cur[j]) * i / n for j in JOINTS},
-                    max_speed_deg_s=REAL_SPEED_DEG_S, dry_run=dry_run)
-        if dry_run:
-            break  # dry runs read the real (unmoved) pose each time; one chunk shows the gist
-
-
-def status(msg):
-    log.info(msg)
-    control.beat(msg)
-
-
-def hold_until_user(arm, rest, why):
-    """After a STOP or error: keep holding, wait for PARK (fold to rest, limp) or LIMP from stop_gui."""
-    global ABORTED
-    ABORTED = True  # no further attempts after any stop or fault
-    status(f"HOLDING ({why}). Press PARK or LIMP.")
-    while True:
-        control.beat()
-        if control.is_set(control.LIMP):
-            arm.disable_torque()
-            status("LIMP: torque off")
-            return
-        if control.is_set(control.PARK):
-            control.clear(control.STOP, control.PARK)
-            status("PARK: folding back to rest")
-            try:
-                segmented_move(arm, rest, dry_run=False)
-                time.sleep(0.5)
-                arm.disable_torque()
-                status("parked, torque off")
-            except Exception as e:  # noqa: BLE001  (STOP pressed again, or a fault)
-                return hold_until_user(arm, rest, f"park interrupted: {e}")
-            return
-        time.sleep(0.05)
-
-
-def fixed_jaw_dir(plan):
-    """Horizontal unit vector from the swinging jaw to the fixed jaw at the plan's grasp pose."""
-    import mujoco
-    import kinematics
-    m = mujoco.MjModel.from_xml_path(kinematics.SCENE)
-    d = mujoco.MjData(m)
-    i = next(k for k, wp in enumerate(plan) if wp["gripper"] < plan[0]["gripper"] - 1e-6) - 1
-    for j in JOINTS:
-        d.qpos[m.joint(j).qposadr] = plan[i][j]
-    mujoco.mj_forward(m, d)
-    v = (d.geom_xpos[m.geom("fixed_pad").id] - d.geom_xpos[m.geom("moving_pad").id])[:2]
-    return v / np.linalg.norm(v)
-
-
-def snapshot(cam, name):
-    """Save the current Kinect RGB frame to control/<name>.jpg (best effort)."""
-    try:
-        import cv2
-        rgb = cam.wait_for_frames(2)[0]
-        cv2.imwrite(str(control.DIR / f"{name}.jpg"), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-    except Exception as e:  # noqa: BLE001
-        log.warning("snapshot %s failed: %r", name, e)
-
-
 def split_at_lift(frames):
     """Index where the arm starts lifting after the gripper has closed on the block."""
     k = next(i for i, f in enumerate(frames) if f["gripper"] <= GRIP_CLOSED_CMD + 1e-6)
@@ -267,9 +92,9 @@ def block_still_on_table(cam, block_xyz, block_top=0.03):
     """After the lift: look at the red pixels near where the block was and measure their height.
     Mostly at table height => still on the table (True); clearly raised => lifted (False).
     Too few red pixels with valid depth => can't tell; trust the gripper (False)."""
-    from perception.block_detect import hsv_mask, load_config
-    from perception.kinect import deproject
-    T = np.array(json.loads((ROOT / "perception" / "calib.json").read_text())["T_robot_cam"])
+    from core.perception.block_detect import hsv_mask, load_config
+    from core.perception.kinect import deproject
+    T = np.array(json.loads((CALIB_PATH).read_text())["T_robot_cam"])
     R, t = T[:3, :3], T[:3, 3]
     c = R.T @ (np.asarray(block_xyz, float) - t)
     u0, v0 = cam.intr["fx"] * c[0] / c[2] + cam.intr["cx"], cam.intr["fy"] * c[1] / c[2] + cam.intr["cy"]
@@ -313,7 +138,7 @@ def run_arm(frames, real, block_xyz=None):
             lift = split_at_lift(frames)
             close = next(i for i, f in enumerate(frames) if f["gripper"] < frames[0]["gripper"] - 1e-6)
             result = "aborted"
-            from perception.kinect import Kinect
+            from core.perception.kinect import Kinect
             for _k in range(4):   # the Kinect sometimes needs a second try right after being closed
                 try:
                     cam = Kinect().start()
@@ -412,17 +237,17 @@ def main():
     ap.add_argument("--keep-going", action="store_true", help="with --practice: carry on after a failed cycle")
     ap.add_argument("--no-learn", action="store_true", help="no learned offsets: aim straight at the detected object")
     ap.add_argument("--practice", type=int, default=0, help="N pick-and-place cycles alternating between the spots")
-    ap.add_argument("--object", help="profile in perception/config.json 'objects' (e.g. yellow_candy)")
+    ap.add_argument("--object", help="profile in core/perception/config.json 'objects' (e.g. yellow_candy)")
     ap.add_argument("--attempts", type=int, default=5, help="re-detect and retry until the Kinect sees success")
     a = ap.parse_args()
     if a.object:
         import os
         os.environ["KINECT_OBJECT"] = a.object  # perception reads it for colour, size and yaw period
-        prof = json.loads((ROOT / "perception" / "config.json").read_text())["objects"][a.object]
+        prof = json.loads((CORE / "perception" / "config.json").read_text())["objects"][a.object]
         globals().update(prof.get("run", {}))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
 
-    from learner import GraspLearner
+    from .learner import GraspLearner
     learner = GraspLearner(a.object)
     spots = [np.array(a.target, float), np.array(a.target2 if a.target2 else (a.target[0], -a.target[1]), float)]
     cycles = max(1, a.practice)
@@ -526,7 +351,7 @@ def attempt_once(a, block, learner=None):
     if a.viewer:
         import mujoco
         import mujoco.viewer
-        import kinematics
+        from core.sim import kinematics
         m = mujoco.MjModel.from_xml_path(kinematics.SCENE)
         d = mujoco.MjData(m)
         with mujoco.viewer.launch_passive(m, d) as v:
@@ -558,7 +383,7 @@ def attempt_once(a, block, learner=None):
         ok, info = check_with_kinect(goal_xy)
         log.info("Kinect check: %s %s", "SUCCESS" if ok else "FAILED", info)
         rec["final_xyz"] = list(info["xyz"]) if info.get("xyz") is not None else None
-        if ABORTED or control.is_set(control.STOP) or control.is_set(control.LIMP):
+        if motion.ABORTED or control.is_set(control.STOP) or control.is_set(control.LIMP):
             raise SystemExit("motion was stopped or faulted: no more attempts")
         return ok, result, rec
     return sim["success"], result, rec

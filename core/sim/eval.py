@@ -1,4 +1,4 @@
-"""Domain-randomised evaluation of the scripted pick-and-place.   python sim/eval.py [--n 50] [--seed 0]
+"""Domain-randomised evaluation of the scripted pick-and-place.   python -m core.sim.eval [--n 50] [--seed 0]
 
 Per trial: block xy jitter +-3 cm around (0.20, +0.12) and uniform yaw; cube half-size, mass +-20%;
 cube friction 0.5-1.0 and fingertip-pad friction 1.0-1.5; table friction +-20%; actuator kp (and
@@ -10,8 +10,8 @@ import argparse
 import mujoco
 import numpy as np
 
-from kinematics import SCENE
-from pick_place import plan_pick_place, execute_plan
+from .kinematics import SCENE
+from .pick_place import plan_pick_place, execute_plan
 
 BLOCK0 = np.array([0.20, 0.12])
 TARGET = np.array([0.20, -0.12])

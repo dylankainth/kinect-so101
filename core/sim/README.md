@@ -1,10 +1,10 @@
 # SO-101 pick-and-place simulation (MuJoCo)
 
 Scripted pick-and-place of a 3 cm cube (left side -> right side of the table) using the official SO-101
-MJCF. Everything lives in `sim/`.
+MJCF. Everything lives in `core/sim/`.
 
 ```
-sim/
+core/sim/
   assets/so101/            official model: so101_new_calib.xml (untouched), meshes, upstream README
                            so101_sim.xml = generated copy (see "Model changes")
   build_model.py           regenerates so101_sim.xml from so101_new_calib.xml
@@ -16,19 +16,19 @@ sim/
 
 ## Run
 
-Use the repo venv (`mujoco 3.x`, `numpy`). Scripts import each other by plain module name, so run them as scripts:
+Use the repo venv (`mujoco 3.x`, `numpy`). Run everything from the repo root as modules (`-m core.sim.<name>`):
 
 ```
-.venv\Scripts\python sim\pick_place.py            # one nominal trial, prints success
-.venv\Scripts\python sim\pick_place.py --view     # same, in the MuJoCo viewer
-.venv\Scripts\python sim\eval.py --n 50 --seed 0  # randomised evaluation (about 1 min)
-.venv\Scripts\python sim\kinematics.py            # FK/IK smoke test
+.venv\Scripts\python -m core.sim.pick_place            # one nominal trial, prints success
+.venv\Scripts\python -m core.sim.pick_place --view     # same, in the MuJoCo viewer
+.venv\Scripts\python -m core.sim.eval --n 50 --seed 0  # randomised evaluation (about 1 min)
+.venv\Scripts\python -m core.sim.kinematics            # FK/IK smoke test
 ```
 
 API:
 
 ```python
-from pick_place import plan_pick_place, execute_plan, PLAN_DT
+from core.sim.pick_place import plan_pick_place, execute_plan, PLAN_DT
 plan = plan_pick_place(block_xyz=(0.20, 0.12, 0.015), target_xyz=(0.20, -0.12, 0.015), block_yaw=0.0)
 # plan: list of dicts, one per PLAN_DT = 0.02 s (50 Hz), keys:
 #   shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper   (all radians)
@@ -113,7 +113,7 @@ The upstream file `so101_new_calib.xml` is kept unmodified. The sim copy:
    0.02) as the TPU-tip stand-in; randomised 1.0-1.5 in eval;
 3. adds the site `grasp_point` = the point between the pads (gripper frame (0.012, 0, -0.088) m), which IK
    places at the cube centre. It is ~12 mm off the wrist-roll axis, so wrist_roll moves it; IK takes roll into account.
-4. sets `meshdir` for use from `sim/scene.xml`.
+4. sets `meshdir` for use from `core/sim/scene.xml`.
 
 The scene sets `cone=elliptic, impratio=10, noslip_iterations=3` for stable grasping, timestep 2 ms. Cube: 3 cm,
 20 g, friction 0.8.

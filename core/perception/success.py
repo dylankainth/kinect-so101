@@ -5,7 +5,7 @@ The block CENTRE must be inside the region shrunk by `margin` (so the block is m
 inside), and its centre height within z_tol of block_size/2 above the table (table is
 z = table_z, default 0 = robot base plane).
 
-    from perception.success import Region, check_success
+    from core.perception.success import Region, check_success
     ok, info = check_success(Region.rect(0.15, 0.30, -0.20, -0.05))
 """
 from dataclasses import dataclass

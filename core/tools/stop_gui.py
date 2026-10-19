@@ -1,6 +1,6 @@
 """Always-on-top STOP / PARK / LIMP panel for the SO-101.
 
-    pythonw stop_gui.py
+    pythonw -m core.tools.stop_gui
 
 STOP freezes the arm in place (holds). PARK, after a stop, folds it back to rest and goes limp.
 LIMP drops torque immediately (the arm falls). If no runner owns the port, LIMP writes
@@ -8,7 +8,7 @@ Torque_Enable=0 to the servos directly. Space or Esc also presses STOP.
 """
 import tkinter as tk
 
-import control
+from core import control
 
 PORT = "COM4"
 

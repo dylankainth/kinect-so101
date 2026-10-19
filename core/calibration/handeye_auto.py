@@ -1,35 +1,32 @@
 """Autonomous hand-eye correction: measure where the real jaw tips go versus where the model says.
 
-    python handeye_auto.py            # runs the probe grid, writes control/handeye.json
-    python handeye_auto.py --fit-only # refit from saved samples
+    python -m core.calibration.handeye_auto            # runs the probe grid, writes control/handeye.json
+    python -m core.calibration.handeye_auto --fit-only # refit from saved samples
 
 1. With the arm parked, record a background depth image of the table.
 2. For each grid point, follow the planner's own approach (closed gripper) down to a hover just
    above the table, hold, and record depth. Pixels that came >12 mm closer to the camera than the
    background are the arm; their lowest cluster near the commanded point is the jaw tip.
 3. The model tip is the lowest vertex of the jaw meshes at the *measured* joint angles.
-4. Fit real_xy = A @ model_xy + b (least squares) and a z offset. run_pick_place.py applies the
+4. Fit real_xy = A @ model_xy + b (least squares) and a z offset. core.motion.aim applies the
    inverse when aiming.
 """
 import argparse
 import json
 import sys
 import time
-from pathlib import Path
 
 import mujoco
 import numpy as np
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT / "sim"))
-import kinematics  # noqa: E402
-from pick_place import plan_pick_place, GRIPPER_OPEN  # noqa: E402
-
-import control  # noqa: E402
-from perception.kinect import Kinect, deproject  # noqa: E402
-from robot.arm import SafeArm  # noqa: E402
-from robot.mapping import sim_to_real, real_to_sim  # noqa: E402
-from run_pick_place import keyframes, segmented_move, STREAM_HZ  # noqa: E402
+from core import control
+from core.motion import keyframes, segmented_move, STREAM_HZ
+from core.paths import CALIB_PATH
+from core.perception.kinect import Kinect, deproject
+from core.robot.arm import SafeArm
+from core.robot.mapping import sim_to_real, real_to_sim
+from core.sim import kinematics
+from core.sim.pick_place import plan_pick_place, GRIPPER_OPEN
 
 OUT = control.DIR / "handeye.json"
 SAMPLES = control.DIR / "handeye_samples.json"
@@ -41,7 +38,7 @@ JAW_BODIES = ("gripper", "moving_jaw_so101_v1")
 
 
 def load_T():
-    return np.array(json.loads((ROOT / "perception/calib.json").read_text())["T_robot_cam"])
+    return np.array(json.loads(CALIB_PATH.read_text())["T_robot_cam"])
 
 
 def depth_median(k, n=10):
@@ -133,7 +130,7 @@ def collect():
                 control.beat("hand-eye done, torque off")
             except BaseException as e:  # noqa: BLE001
                 print("aborted:", repr(e))
-                from run_pick_place import hold_until_user
+                from core.motion import hold_until_user
                 arm.stop()
                 hold_until_user(arm, rest, str(e) or type(e).__name__)
     finally:

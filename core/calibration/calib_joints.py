@@ -1,41 +1,38 @@
 """Kinematic calibration from depth: fit joint zero offsets (and a small camera correction) so the
 MuJoCo model of the arm lines up with what the Kinect actually sees.
 
-    python calib_joints.py           # move through the poses, collect depth, fit, save
-    python calib_joints.py --fit-only
+    python -m core.calibration.calib_joints           # move through the poses, collect depth, fit, save
+    python -m core.calibration.calib_joints --fit-only
 
 1. Background depth with the arm folded at rest.
 2. For each hover pose: follow a smooth joint path there, hold, read the joints, record depth.
    Pixels >15 mm closer to the camera than the background are the arm.
 3. Fit offsets d (deg) for pan / lift / elbow / wrist_flex, plus a rigid camera correction
    (dx, dy, dz, dyaw), minimising the distance from observed arm points to the model's mesh surface.
-4. Save robot/joint_offsets.json (read by robot/mapping.py) and the corrected perception/calib.json.
+4. Save core/robot/joint_offsets.json (read by core/robot/mapping.py) and the corrected core/perception/calib.json.
 """
 import argparse
 import json
 import sys
 import time
-from pathlib import Path
 
 import mujoco
 import numpy as np
 from scipy.optimize import minimize
 from scipy.spatial import cKDTree
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT / "sim"))
-import kinematics  # noqa: E402
-from pick_place import home_pose, _joint_move, _wp, JOINTS  # noqa: E402
-
-import control  # noqa: E402
-from perception.kinect import Kinect, deproject  # noqa: E402
-from robot.arm import SafeArm  # noqa: E402
-from robot.mapping import real_to_sim  # noqa: E402
-from run_pick_place import keyframes, segmented_move, STREAM_HZ, hold_until_user  # noqa: E402
+from core import control
+from core.motion import keyframes, segmented_move, STREAM_HZ, hold_until_user
+from core.paths import CALIB_PATH, JOINT_OFFSETS_PATH
+from core.perception.kinect import Kinect, deproject
+from core.robot.arm import SafeArm
+from core.robot.mapping import real_to_sim
+from core.sim import kinematics
+from core.sim.pick_place import home_pose, _joint_move, _wp, JOINTS
 
 DATA = control.DIR / "calib_joints.npz"
-OFFSETS = ROOT / "robot" / "joint_offsets.json"
-CALIB = ROOT / "perception" / "calib.json"
+OFFSETS = JOINT_OFFSETS_PATH
+CALIB = CALIB_PATH
 FIT_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex"]
 ARM_DZ = 0.015
 # (x, y, z) grasp-point hover targets in the robot frame, tilt (rad), wrist roll (rad)

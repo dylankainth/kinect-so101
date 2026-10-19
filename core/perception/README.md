@@ -1,6 +1,6 @@
-# perception/ - Kinect v1 block perception for the SO-101
+# core/perception/ - Kinect v1 block perception for the SO-101
 
-Run everything from the repo root with `.venv\Scripts\python -m perception.<module>`.
+Run everything from the repo root with `.venv\Scripts\python -m core.perception.<module>`.
 (The `[Stream 70] Invalid magic` stderr spam is a flaky USB link; harmless.)
 
 | file | role |
@@ -44,21 +44,21 @@ Marker: `markers/aruco_4x4_50_id0_80mm.png` (DICT_4X4_50, id 0, black square 80 
    "marker": {"id": 0, "size_mm": 80.0, "center_xyz_m": [0.20, -0.10, 0.0], "yaw_deg": -90}
    ```
 6. Make sure nothing else holds the Kinect (close any viewer), then
-   `python -m perception.calibrate aruco`. Check the printed fit RMS (expect < ~5 mm) and
+   `python -m core.perception.calibrate aruco`. Check the printed fit RMS (expect < ~5 mm) and
    "camera origin" (z ~ camera height above table, ~0.8-1.2 m). Writes `calib.json`.
    Fallbacks: `calibrate pnp` (RGB only; noisy, expect cm-level / a few degrees tilt error,
    use only if depth fails) or `calibrate points --points X1,Y1 X2,Y2 X3,Y3 X4,Y4` (click table
    points with known robot-frame coordinates, in order; Enter to finish).
-7. Verify: `python -m perception.calibrate verify`, hover over the base centre / a point
+7. Verify: `python -m core.perception.calibrate verify`, hover over the base centre / a point
    measured by tape; the readout must match within ~1 cm and z ~ 0 on the table. Repeat step 6 if
    not. **Re-run whenever the Kinect or the arm base moves.**
 8. Remove or leave the marker (keep it out of the block/target areas).
 
 ## Block detection
 
-`python -m perception.block_detect --tune` : trackbars for HSV (hue wraps when h_lo > h_hi,
+`python -m core.perception.block_detect --tune` : trackbars for HSV (hue wraps when h_lo > h_hi,
 default red/orange 170..12), click image to read HSV, `s` saves to `config.json["block"]`,
-`q` quits. Use your real block under real lighting. `python -m perception.block_detect` runs
+`q` quits. Use your real block under real lighting. `python -m core.perception.block_detect` runs
 10 live detections. Detection is rejected if no blob of plausible size/fill, or depth invalid
 (<30% valid pixels in blob) or outside 0.4-3 m. Optional `roi` [x0,y0,x1,y1] limits the search
 (good for excluding red things elsewhere). Table/robot colours that match the hue will confuse it.
@@ -66,8 +66,8 @@ default red/orange 170..12), click image to read HSV, `s` saves to `config.json[
 ## Usage in code
 
 ```python
-from perception.block_pose import get_block_xyz_robot
-from perception.success import Region, check_success
+from core.perception.block_pose import get_block_xyz_robot
+from core.perception.success import Region, check_success
 r = get_block_xyz_robot()          # median over ~10 frames; r.valid False if unseen/moving
 ok, info = check_success(Region.rect(0.15, 0.30, -0.20, -0.05))   # in region AND on table
 ```

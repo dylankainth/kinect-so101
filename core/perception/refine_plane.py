@@ -13,7 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
-from perception.kinect import Kinect, deproject
+from core.perception.kinect import Kinect, deproject
 
 HERE = Path(__file__).parent
 

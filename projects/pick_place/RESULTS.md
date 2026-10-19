@@ -2,7 +2,7 @@
 
 Scripted IK planner (MuJoCo SO-101 model), Kinect for perception and verification, no learned offsets.
 
-    python run_pick_place.py --target 0.21 0.08 --target2 0.21 -0.10 \
+    python -m projects.pick_place.run_pick_place --target 0.21 0.08 --target2 0.21 -0.10 \
         --practice 10 --keep-going --no-learn --attempts 3 --real --yes
 
 Each cycle: find the block with the Kinect, plan and rehearse in sim, pick it up, carry it to whichever of
@@ -36,7 +36,7 @@ yaw -17 to -42 degrees all succeeded.
 
 ## What made it work
 
-1. Depth-based kinematic calibration (`calib_joints.py`): fits joint zero offsets and the camera pose to the
+1. Depth-based kinematic calibration (`core/calibration/calib_joints.py`): fits joint zero offsets and the camera pose to the
    Kinect's 3D view of the real arm; redo whenever the arm's mount moves.
 2. An honest grasp check: fast gripper, wait for the jaws to stop, read the position (about 7 = empty, 20+ =
    holding a block).
@@ -45,7 +45,7 @@ yaw -17 to -42 degrees all succeeded.
 
 ## Known limits
 
-* Camera search is limited to the mat (`roi` in `perception/config.json`); bright daylight changed colours
+* Camera search is limited to the mat (`roi` in `core/perception/config.json`); bright daylight changed colours
   enough to pick up the red/orange colour wheel off the mat.
 * The Kinect needs restarting now and then; camera steps retry automatically.
 * Reach: blocks beyond ~33 cm from the base are marginal.

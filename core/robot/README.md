@@ -7,7 +7,7 @@ Units: arm joints are LeRobot calibrated DEGREES (zero = middle of calibrated ra
 The gripper is a 0-100 RANGE value (0 closed, 100 open), not degrees.
 
 ## 0. Before you touch anything
-1. `.venv\Scripts\python robot\check.py` - should show 6 servos, ~5 V, temps < 40 C, `Torque_Enable` all 0.
+1. `.venv\Scripts\python -m core.robot.check` - should show 6 servos, ~5 V, temps < 40 C, `Torque_Enable` all 0.
 2. READ THE CALIBRATION WARNING it prints. The motors' stored homing offsets / limits differ from
    `DYLAN-FOLLOWER-1.json` (pan by 111 ticks, wrist_flex by 101, etc). SafeArm compensates by shifting
    readings into the file's frame (`calibration_source="file"`), and intersects the motors' own limit
@@ -59,7 +59,7 @@ values should agree within a few degrees.
 * Same direction but constant error: set `offset` (real units) = real_reading - sign*sim_degrees at a
   pose you can set accurately in both.
 * Gripper: `scale` = real units per sim degree (1.0 now; sim opens to 100 deg, real 0-100).
-Check `python robot\mapping.py` (round trip) and re-verify with section 3. Flipping a sign does not
+Check `python -m core.robot.mapping` (round trip) and re-verify with section 3. Flipping a sign does not
 change which joint limits `SafeArm` enforces (those are in real units).
 
 ## 5. Full moves

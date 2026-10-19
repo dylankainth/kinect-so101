@@ -1,7 +1,7 @@
 """Sim-to-real probe: hold the arm at the planned pre-grasp pose over the block and compare
 commanded joints, measured joints, and where the Kinect sees the arm.
 
-    python probe_pose.py [--block X Y Z]
+    python -m core.calibration.probe_pose [--block X Y Z]
 
 Writes control/probe.jpg (red = FK of commanded joints, green = FK of measured joints, drawn on
 the Kinect image) and control/probe.json. The arm parks (folds to rest, limp) afterwards.
@@ -10,22 +10,22 @@ import argparse
 import json
 import sys
 import time
-from pathlib import Path
 
 import cv2
 import mujoco
 import numpy as np
 
-ROOT = Path(__file__).parent
-sys.path.insert(0, str(ROOT / "sim"))
-import kinematics  # noqa: E402
-from pick_place import plan_pick_place  # noqa: E402
+from core import control
+from core.motion import segmented_move, keyframes, STREAM_HZ
+from core.paths import CALIB_PATH
+from core.perception.kinect import deproject
+from core.perception.util import perceive_block
+from core.robot.arm import SafeArm, JOINTS
+from core.robot.mapping import sim_to_real, real_to_sim
+from core.sim import kinematics
+from core.sim.pick_place import plan_pick_place
 
-import control  # noqa: E402
-from robot.arm import SafeArm, JOINTS  # noqa: E402
-from robot.mapping import sim_to_real, real_to_sim  # noqa: E402
-from run_pick_place import perceive_block, segmented_move, keyframes, DEFAULT_TARGET, STREAM_HZ  # noqa: E402
-from perception.kinect import deproject  # noqa: E402
+DEFAULT_TARGET = (0.20, -0.12)
 
 CHAIN = ["base", "shoulder", "upper_arm", "lower_arm", "wrist", "gripper"]
 
@@ -68,7 +68,7 @@ def main():
             arm.follow(frames + [frames[-1]] * int(2 * STREAM_HZ), rate_hz=STREAM_HZ)
             meas = arm.read_positions()
             load = arm.bus.sync_read("Present_Load", normalize=False)
-            from perception.kinect import Kinect
+            from core.perception.kinect import Kinect
             k = Kinect().start()
             try:
                 f = k.wait_for_frames(5)
@@ -81,7 +81,7 @@ def main():
             time.sleep(0.5)
             arm.disable_torque()
 
-    T = np.array(json.loads((ROOT / "perception/calib.json").read_text())["T_robot_cam"])
+    T = np.array(json.loads(CALIB_PATH.read_text())["T_robot_cam"])
     R, t = T[:3, :3], T[:3, 3]
     I = k.intr
 

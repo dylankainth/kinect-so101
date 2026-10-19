@@ -12,7 +12,7 @@ plan_pick_place(block_xyz, target_xyz, block_yaw=0.0) -> list[dict]
 import numpy as np
 import mujoco
 
-from kinematics import SO101Kinematics, JOINTS
+from .kinematics import SO101Kinematics, JOINTS, SCENE
 
 PLAN_DT = 0.02  # s, control period of the waypoint stream
 GRIPPER_OPEN = 0.8
@@ -166,7 +166,7 @@ def execute_plan(plan, block_xyz, target_xyz, block_yaw=0.0, latency_steps=0, mo
     """Run `plan` in sim with the cube at block_xyz. latency_steps = number of PLAN_DT control steps the
     command is delayed. Returns dict(success, cube_xyz, err_xy, on_table, max_cube_height)."""
     if model is None:
-        model = mujoco.MjModel.from_xml_path(__import__("kinematics").SCENE)
+        model = mujoco.MjModel.from_xml_path(SCENE)
     data = data if data is not None else mujoco.MjData(model)
     aid = [model.actuator(n).id for n in JOINTS]
     cube_geom = model.geom("cube_geom")
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     print(f"{len(plan)} waypoints, {len(plan)*PLAN_DT:.1f} s")
     if a.view:
         import mujoco.viewer
-        m = mujoco.MjModel.from_xml_path(__import__("kinematics").SCENE)
+        m = mujoco.MjModel.from_xml_path(SCENE)
         d = mujoco.MjData(m)
         with mujoco.viewer.launch_passive(m, d) as v:
             print(execute_plan(plan, block, target, model=m, data=d, viewer=v))

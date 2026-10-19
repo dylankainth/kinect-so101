@@ -1,8 +1,8 @@
 """Live view of what the robot's Kinect sees: RGB | depth, plus the runner's status.
 
-    pythonw kinect_live.py
+    pythonw -m core.tools.kinect_live
 
-Whatever process currently owns the Kinect (run_pick_place, calibration, ...) writes
+Whatever process currently owns the Kinect (a project runner, calibration, ...) writes
 control/live.jpg a few times a second; this window just shows it. Esc or q closes it.
 """
 import os
@@ -11,7 +11,7 @@ import time
 import cv2
 import numpy as np
 
-import control
+from core import control
 
 LIVE = control.DIR / "live.jpg"
 WIN = "Kinect: what the robot sees"

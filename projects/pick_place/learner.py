@@ -13,11 +13,11 @@ away from offsets that missed. Experience persists per object in control/learn_<
 """
 import json
 import time
-from pathlib import Path
-
 import numpy as np
 
-DIR = Path(__file__).parent / "control"
+from core.paths import CONTROL_DIR
+
+DIR = CONTROL_DIR
 
 GRID_UA = np.linspace(-0.015, 0.015, 7)        # 5 mm steps along / across the closing axis
 GRID_Z = np.array([-0.004, 0.0, 0.004, 0.008])  # grasp height steps

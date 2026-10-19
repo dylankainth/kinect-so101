@@ -1,6 +1,6 @@
 """Block position in the robot base frame (x forward, y left, z up, origin at arm base).
 
-    from perception.block_pose import get_block_xyz_robot
+    from core.perception.block_pose import get_block_xyz_robot
     r = get_block_xyz_robot()
     if r.valid: print(r.xyz)         # np.array([x, y, z]) metres, z = block CENTRE height
 
@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 
 import cv2
-from perception.kinect import deproject
+from .kinect import deproject
 import numpy as np
 
 from .block_detect import CONFIG_PATH, detect_block, load_config

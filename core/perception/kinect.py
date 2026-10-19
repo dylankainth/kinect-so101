@@ -73,7 +73,7 @@ class Kinect:
         (only one process can open the device)."""
         import os
         import cv2
-        out = os.path.join(os.path.dirname(HERE), "control", "live.jpg")
+        out = os.path.join(os.path.dirname(os.path.dirname(HERE)), "control", "live.jpg")
         tmp = out + ".tmp.jpg"
         while not self._stop.is_set():
             time.sleep(period)

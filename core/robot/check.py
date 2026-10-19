@@ -1,14 +1,12 @@
 """Read-only diagnostic. Never writes a register, never enables torque.
 
-    .venv\\Scripts\\python robot\\check.py [COM4] [--source file|motor]
+    .venv\\Scripts\\python -m core.robot.check [COM4] [--source file|motor]
 """
 import logging
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from arm import JOINTS, SafeArm  # noqa: E402
-from mapping import real_to_sim  # noqa: E402
+from .arm import JOINTS, SafeArm
+from .mapping import real_to_sim
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 args = [a for a in sys.argv[1:] if a.upper().startswith("COM")]
