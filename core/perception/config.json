@@ -1,0 +1,175 @@
+{
+  "marker": {
+    "id": 0,
+    "size_mm": 35.0,
+    "center_xyz_m": [
+      0.1775,
+      0.0,
+      0.0
+    ],
+    "yaw_deg": -90.0
+  },
+  "block_pose": {
+    "block_size_m": 0.03
+  },
+  "objects": {
+    "yellow_candy": {
+      "detect": {
+        "h_lo": 18,
+        "h_hi": 35,
+        "s_lo": 90,
+        "s_hi": 255,
+        "v_lo": 70,
+        "v_hi": 255,
+        "min_area_px": 60,
+        "max_area_px": 1500,
+        "min_fill": 0.35,
+        "roi": [
+          40,
+          155,
+          490,
+          445
+        ],
+        "exclude": [
+          [
+            330,
+            0,
+            460,
+            170
+          ]
+        ],
+        "close_px": 11
+      },
+      "pose": {
+        "block_size_m": 0.012,
+        "yaw_period": 3.14159265
+      },
+      "run": {
+        "GRASP_Z_RAISE": 0.004,
+        "GRASP_MIN": 8.5,
+        "YAW_PERIOD": 3.14159265,
+        "REST_GRIPPER_XY": [
+          9,
+          9
+        ]
+      }
+    },
+    "yellow_ball": {
+      "detect": {
+        "h_lo": 18,
+        "h_hi": 35,
+        "s_lo": 90,
+        "s_hi": 255,
+        "v_lo": 70,
+        "v_hi": 255,
+        "min_area_px": 30,
+        "max_area_px": 800,
+        "min_fill": 0.45,
+        "roi": [
+          40,
+          155,
+          490,
+          445
+        ],
+        "exclude": [
+          [
+            330,
+            0,
+            460,
+            170
+          ]
+        ],
+        "close_px": 7
+      },
+      "pose": {
+        "block_size_m": 0.013,
+        "yaw_period": 1.5707963
+      },
+      "run": {
+        "GRASP_Z_RAISE": 0.004,
+        "GRASP_MIN": 8.5,
+        "YAW_PERIOD": 1.5707963,
+        "REST_GRIPPER_XY": [
+          9,
+          9
+        ],
+        "TACTILE": false
+      }
+    },
+    "white_cylinder": {
+      "detect": {
+        "h_lo": 0,
+        "h_hi": 179,
+        "s_lo": 0,
+        "s_hi": 70,
+        "v_lo": 170,
+        "v_hi": 255,
+        "min_area_px": 60,
+        "max_area_px": 700,
+        "min_fill": 0.45,
+        "roi": [
+          40,
+          240,
+          490,
+          445
+        ],
+        "exclude": [],
+        "close_px": 5
+      },
+      "pose": {
+        "block_size_m": 0.055,
+        "yaw_period": 1.5707963
+      },
+      "run": {
+        "GRASP_Z_RAISE": 0.004,
+        "GRASP_MIN": 12.0,
+        "YAW_PERIOD": 1.5707963
+      }
+    },
+    "white_cylinder_lying": {
+      "detect": {
+        "h_lo": 0,
+        "h_hi": 179,
+        "s_lo": 0,
+        "s_hi": 70,
+        "v_lo": 170,
+        "v_hi": 255,
+        "min_area_px": 250,
+        "max_area_px": 1300,
+        "min_fill": 0.45,
+        "roi": [
+          62,
+          165,
+          458,
+          440
+        ],
+        "exclude": [
+          [
+            355,
+            0,
+            425,
+            240
+          ]
+        ],
+        "close_px": 5
+      },
+      "pose": {
+        "block_size_m": 0.022,
+        "yaw_period": 3.14159265
+      },
+      "run": {
+        "GRASP_Z_RAISE": 0.004,
+        "GRASP_MIN": 12.0,
+        "YAW_PERIOD": 3.14159265
+      }
+    }
+  },
+  "block": {
+    "roi": [
+      40,
+      155,
+      490,
+      445
+    ]
+  }
+}
