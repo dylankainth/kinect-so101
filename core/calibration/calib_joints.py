@@ -13,7 +13,6 @@ MuJoCo model of the arm lines up with what the Kinect actually sees.
 """
 import argparse
 import json
-import sys
 import time
 
 import mujoco

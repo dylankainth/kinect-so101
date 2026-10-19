@@ -8,7 +8,6 @@ the Kinect image) and control/probe.json. The arm parks (folds to rest, limp) af
 """
 import argparse
 import json
-import sys
 import time
 
 import cv2

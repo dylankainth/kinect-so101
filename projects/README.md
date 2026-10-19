@@ -6,6 +6,7 @@ project; anything two projects need goes into `core/` instead.
 ```
 projects/
   pick_place/   scripted Kinect pick-and-place (run_pick_place.py, learner.py, RESULTS.md)
+  stack_blocks/ stack three blocks, colour-agnostic, re-looks between moves
   template/     copy this to start a new project
 ```
 

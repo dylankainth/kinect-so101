@@ -48,14 +48,14 @@ def wait_to_cool():
         time.sleep(20)
 
 
-def keyframes(plan):
+def keyframes(plan, open_sim_rad=GRIPPER_OPEN):
     """Resample the 50 Hz sim plan onto the real streaming rate, slowed down by TIME_SCALE."""
     q = np.array([[wp[j] for j in JOINTS] for wp in plan])
     t_src = np.arange(len(plan)) * PLAN_DT * TIME_SCALE
     t_dst = np.arange(0.0, t_src[-1] + 1e-9, 1.0 / STREAM_HZ)
     out = [dict(zip(JOINTS, (np.interp(t, t_src, q[:, i]) for i in range(len(JOINTS))))) for t in t_dst]
     frames = [sim_to_real(wp) for wp in out]
-    open_sim = math.degrees(GRIPPER_OPEN)
+    open_sim = math.degrees(open_sim_rad)   # the plan's "open" maps to REAL_GRIPPER_OPEN
     for f in frames:
         # sim "closed" squeezes past the jaw limit (real fully-closed is the soft limit); the real
         # jaw opens wider than the sim's open command for more margin around the block

@@ -50,6 +50,7 @@ GRIPPER_REGS = dict(Max_Torque_Limit=800, Protection_Current=400, Overload_Torqu
 SOFT_MARGIN = {j: 3.0 for j in ARM_JOINTS} | {"gripper": 1.0}      # deg (gripper: 0-100 units)
 LOAD_LIMIT = {j: 800 for j in ARM_JOINTS} | {"gripper": None}      # |Present_Load| 0..1000; gripper stalls on objects by design
 TEMP_WARN_C, TEMP_ABORT_C = 50, 60
+TEMP_HOT_READS = 2          # consecutive over-temperature reads before aborting (filters a bad packet)
 VOLT_ABORT_V = 3.4         # immediate stop below this
 VOLT_LOW_V = 4.0           # ...or after VOLT_LOW_READS consecutive status reads below this
 VOLT_LOW_READS = 3         # (the 5 V supply dips to ~3.7 V for moments when the arm is extended)
@@ -83,6 +84,7 @@ class SafeArm:
         self.mismatch = {}
         self.stop_requested = None                  # optional callable -> True to abort move_to and hold
         self.low_volt_reads = 0
+        self.hot_reads = 0
         self.trace = []                             # (t, goal, measured) per follow() step
 
     # ------------------------------------------------------------------ connection
@@ -220,10 +222,14 @@ class SafeArm:
         return s
 
     def _check_status(self, st):
+        hot = {j: t for j, t in st.get("temp", {}).items() if t >= TEMP_ABORT_C}
+        if "temp" in st:   # one corrupted packet read 62 C off a servo at 31 C: need two hot reads in a row
+            self.hot_reads = self.hot_reads + 1 if hot else 0
+        if hot and self.hot_reads >= TEMP_HOT_READS:
+            j, t = max(hot.items(), key=lambda kv: kv[1])
+            self.disable_torque()
+            raise SafetyAbort(f"{j} temperature {t}C >= {TEMP_ABORT_C}C: torque disabled (limp)")
         for j, t in st.get("temp", {}).items():
-            if t >= TEMP_ABORT_C:
-                self.disable_torque()
-                raise SafetyAbort(f"{j} temperature {t}C >= {TEMP_ABORT_C}C: torque disabled (limp)")
             if t >= TEMP_WARN_C:
                 log.warning("%s temperature %dC", j, t)
         if "volt" in st:
