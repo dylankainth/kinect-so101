@@ -134,6 +134,8 @@ TUNINGS = (dict(), dict(place_raise=0.0), dict(place_raise=0.0, open=1.0), dict(
 PLACE_YAW_TRIM = np.radians(-11.8)  # aim this far off the stack's yaw: the placed block lands about this much rotated
                             # the other way. 9 real trials at trims -8.2/-16.4/-24.6 deg, 2026-10-19: yaw error =
                             # 10.3 + 0.87 * trim (deg), 2.7 deg scatter, zero at -11.8
+REFINE_XY_TOL = 0.004       # m, a placed block this close to where it should be is left alone ...
+REFINE_YAW_TOL = np.radians(3.0)   # ... and so is one this close in yaw (camera noise is about 1-2 mm and 1 deg)
 RELEASE_CLEAR = 0.015       # m, slide the open gripper this far from the placed block before lifting (see
                             # plan_pick_place release_clear)
 SIM_HOLD = 0.08             # rad: how hard the rehearsal's jaws hold the box. A 3 cm box stalls the sim jaws at about
@@ -265,6 +267,30 @@ def do_move(a, obj, pick, dest_xy, dest_cz, dest_level, dest_yaw):
     return result
 
 
+def refine_place(a, world, obj, below, level, cz, nominal_yaw):
+    """After placing a block on `below` (the stack as it was before), look: if the new top block is off by more than
+    the tolerance, pick it up again and re-place it aimed at (target - the error just measured), up to a.refine
+    times. The error of a place is largely repeatable, so subtracting what was just seen cancels it."""
+    aim_xy, aim_yaw = below.xy.copy(), nominal_yaw
+    for k in range(a.refine):
+        time.sleep(1.0)
+        top, _ = split(world.observe(), below.xy)
+        if top is None or top.level != level:
+            log.warning("refine: the camera does not see the block at layer %d; leaving it", level)
+            return
+        e = top.xy - below.xy
+        ey = (top.yaw - below.yaw + obj.period / 2) % obj.period - obj.period / 2
+        log.info("placement error: %.1f mm (%+.1f, %+.1f), %+.1f deg", np.linalg.norm(e) * 1000, e[0] * 1000,
+                 e[1] * 1000, np.degrees(ey))
+        if np.linalg.norm(e) <= REFINE_XY_TOL and abs(ey) <= REFINE_YAW_TOL:
+            return
+        aim_xy, aim_yaw = aim_xy - e, aim_yaw - ey
+        log.info("refine %d/%d: picking the block up again, aimed at (%.3f, %.3f), yaw %+.1f deg", k + 1, a.refine,
+                 *aim_xy, np.degrees(aim_yaw))
+        if do_move(a, obj, top, aim_xy, cz, level, aim_yaw) != "done" or motion.ABORTED:
+            return
+
+
 def run(a):
     obj = Obj(a.object)
     if a.blocks:
@@ -329,13 +355,17 @@ def run(a):
             continue
         if result == "aborted" or motion.ABORTED:
             raise SystemExit("motion was stopped or faulted: no more attempts")
+        if result == "done" and getattr(a, "refine", 0) and stack is not None:
+            refine_place(a, world, obj, stack, place_level, place_cz, stack.yaw + PLACE_YAW_TRIM)
+        if motion.ABORTED:   # a STOP/PARK/fault during the re-place must end the run, not start the next move
+            raise SystemExit("motion was stopped or faulted: no more attempts")
         time.sleep(1.0)   # let the table settle before the next look
 
 
 def make_args(**kw):
     """The command-line arguments with their defaults, for code that drives the stacker (projects.stack_blocks.trials)."""
     d = dict(count=3, object="box8x5", base=None, blocks=None, look=False, prefer=None, skip_rehearsal=False,
-             show_sim=False, tune=len(TUNINGS), real=False, yes=False, attempts=3)
+             show_sim=False, tune=len(TUNINGS), refine=0, real=False, yes=False, attempts=3)
     d.update(kw)
     return argparse.Namespace(**d)
 
@@ -355,6 +385,9 @@ def main():
     ap.add_argument("--show-sim", action="store_true", help="watch each sim rehearsal in the MuJoCo viewer")
     ap.add_argument("--tune", type=int, default=len(TUNINGS), metavar="N", help="rehearsal variants to try per "
                     "move (TUNINGS), stopping at the first that passes (default: all); 0 = no rehearsal at all")
+    ap.add_argument("--refine", type=int, default=0, metavar="N", help="after each place onto the stack, look and, if the "
+                    "block is more than ~4 mm / 3 deg off, pick it up and re-place it with the error subtracted "
+                    "(up to N times)")
     ap.add_argument("--real", action="store_true", help="move the real arm (asks for confirmation)")
     ap.add_argument("--yes", action="store_true", help="skip the GO prompt (stop_gui.py must be open)")
     ap.add_argument("--attempts", type=int, default=3, help="tries per block before giving up")

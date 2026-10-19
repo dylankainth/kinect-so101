@@ -33,12 +33,12 @@ def placement_error(base, top, period):
     return float(e @ s), float(e @ long_axis), float(np.degrees(dyaw))
 
 
-def unstack(a, obj, base_xy, park_xy):
-    """Carry the top block of the stack at base_xy back to the table at park_xy."""
+def unstack(a, obj, base_xy, park_xy, level=2):
+    """Carry the top block of the `level`-high stack at base_xy back to the table at park_xy."""
     stack, _ = sb.split(sb.CameraWorld(obj).observe(), base_xy)
-    if stack is None or stack.level != 2:
-        raise SystemExit("unstack: the camera does not see a two-high stack at the base spot")
-    floor_z = stack.top_z - 2 * obj.height
+    if stack is None or stack.level != level:
+        raise SystemExit(f"unstack: the camera does not see a {level}-high stack at the base spot")
+    floor_z = stack.top_z - level * obj.height
     return sb.do_move(a, obj, stack, park_xy, floor_z + obj.height / 2, 1, None)
 
 

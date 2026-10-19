@@ -290,16 +290,26 @@ class SafeArm:
         self.torque_on = True
         log.info("torque enabled (holding current pose)")
 
-    def disable_torque(self):
-        """Limp. Attempts all joints even if one write fails."""
+    def disable_torque(self, tries=4):
+        """Limp. Attempts all joints even if one write fails; when the weak supply sags and a servo answers with an
+        input voltage error, waits and tries the joints that did not take it again."""
+        pending = list(JOINTS)
         err = None
-        for j in JOINTS:
-            try:
-                self._write("Torque_Enable", j, 0)
-            except Exception as e:  # noqa: BLE001
-                err = e
+        for i in range(tries):
+            err, still = None, []
+            for j in pending:
+                try:
+                    self._write("Torque_Enable", j, 0)
+                except Exception as e:  # noqa: BLE001
+                    err = e
+                    still.append(j)
+            pending = still
+            if not pending or "voltage" not in str(err).lower() or i == tries - 1:
+                break
+            log.warning("supply sagged while disabling torque (%s): retry %d/%d", err, i + 1, tries - 1)
+            time.sleep(2.0)
         self.torque_on = False
-        if err:
+        if pending and err:
             raise err
 
     def stop(self):
