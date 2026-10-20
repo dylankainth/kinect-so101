@@ -61,6 +61,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--n", type=int, default=10, help="trials")
     ap.add_argument("--count", type=int, default=2, help="blocks in the stack (2 or 3)")
+    ap.add_argument("--prefer", type=float, nargs=2, metavar=("X", "Y"), help="move the loose block nearest here "
+                    "first, so the other one is the last (top) layer")
     ap.add_argument("--object", choices=sorted(sb.OBJECTS), default="box8x5")
     ap.add_argument("--base", type=float, nargs=2, metavar=("X", "Y"), help="where the stack is built (default: the "
                     "block nearest the middle of the mat)")
@@ -95,7 +97,7 @@ def main():
             "err_long_mm", "err_yaw_deg", "top_z_cm", "seconds", "trim_deg", "loose_yaw_deg"]
     rows = []
     sa = sb.make_args(count=a.count, object=a.object, base=list(base_xy), real=True, yes=a.yes, attempts=1, tune=a.tune,
-                      skip_rehearsal=True)
+                      skip_rehearsal=True, prefer=a.prefer)
     cur = dict(trial=0, base=None, loose=[])
     real_run_arm = sb.grasp.run_arm
 
@@ -152,7 +154,16 @@ def main():
             cur["base"] = None   # the unstacking moves are not trial moves
             for level in range(a.count, 1, -1):
                 home = np.array([picked[level - 2]["pick_x"], picked[level - 2]["pick_y"]])
-                result = unstack(sa, obj, base_xy, home, level=level)
+                for dx, dy in ((0, 0), (0.01, 0), (0.01, 0.01), (0.02, 0), (0.02, 0.01), (-0.01, 0.01)):
+                    try:   # the exact spot is sometimes out of the planner's reach: try a little further around
+                        result = unstack(sa, obj, base_xy, home + (dx, dy), level=level)
+                        break
+                    except SystemExit as e:
+                        if "cannot plan" not in str(e):
+                            raise
+                        log.warning("unstack: %s; trying another spot", e)
+                else:
+                    raise SystemExit(f"trial {i}: no reachable spot to unstack layer {level}")
                 if result != "done" or motion.ABORTED:
                     raise SystemExit(f"trial {i}: unstacking layer {level} returned {result!r}; stopping")
                 time.sleep(1.0)

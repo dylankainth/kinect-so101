@@ -270,7 +270,9 @@ def do_move(a, obj, pick, dest_xy, dest_cz, dest_level, dest_yaw):
 def refine_place(a, world, obj, below, level, cz, nominal_yaw):
     """After placing a block on `below` (the stack as it was before), look: if the new top block is off by more than
     the tolerance, pick it up again and re-place it aimed at (target - the error just measured), up to a.refine
-    times. The error of a place is largely repeatable, so subtracting what was just seen cancels it."""
+    times. The error of a place is largely repeatable, so subtracting what was just seen cancels it.
+    UNPROVEN: on the real arm (2026-10-20) the correction overshot (10.0 mm -> 10.4 mm on the other side, yaw error
+    unchanged), so the error is not a fixed bias for a re-picked block. Off by default; do not rely on it."""
     aim_xy, aim_yaw = below.xy.copy(), nominal_yaw
     for k in range(a.refine):
         time.sleep(1.0)
