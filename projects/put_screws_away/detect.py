@@ -24,7 +24,8 @@ EXCLUDE = ((295, 0, 382, 196),     # the arm (u0, v0, u1, v1)
 CONTRAST = 25                      # V brighter than the local background by this much (colour fringes make S useless)
 MIN_AREA, MAX_AREA = 10, 700       # px
 MIN_LEN_PX = 10                    # a screw is about 18 px long in the image, a bolt about 22
-MAX_LEN_PX = 28                    # longer than this is two touching: the jaws cannot take one of a pair
+MAX_LEN_PX = 34                    # longer than this is two touching (a longer bolt is 30 px, a touching pair 38)
+MAX_WIDTH_PX = 9                   # wider than this likewise (a touching pair measured 15)
 MIN_ASPECT = 2.5                   # length / width of the min-area rectangle
 TABLE_Z = 0.002                    # m, the screw's axis above the mat
 
@@ -57,7 +58,7 @@ def find_screws(rgb, intr, T, debug=None, extra_exclude=()):
         pts = np.column_stack(np.nonzero(lab == i))[:, ::-1].astype(np.float32)
         (cx, cy), (w, h), ang = cv2.minAreaRect(pts)
         L, W = max(w, h), max(min(w, h), 1.0)
-        if not MIN_LEN_PX <= L <= MAX_LEN_PX or L / W < MIN_ASPECT:
+        if not MIN_LEN_PX <= L <= MAX_LEN_PX or W > MAX_WIDTH_PX or L / W < MIN_ASPECT:
             continue
         # direction of the long side in the image, then through the camera ray at both ends
         th = np.radians(ang if w >= h else ang + 90)
