@@ -69,5 +69,12 @@ tilted on small pads and slides off), including moves the real arm does fine. Us
 rehearsal in the MuJoCo viewer, `--tune N` tries up to N release variants (`TUNINGS`), and
 `python -m core.tools.kinect_live` shows the live camera with the planner's pick and place targets.
 
-Not done yet: three-high on the real arm (the planner handles layer 3; flat layers are only 3 cm each, so reach is
-not an issue), and a camera check-and-correct step after each place (it would only tighten the result by 1-2 mm).
+**Three-high is not reliable yet** (2026-10-20, 4 trials built, `trials --count 3`; the rest were cut short by supply
+faults). Layer 2 is as good as in the two-high trials (within 3 mm and 3 deg, picked from either side). Layer 3 was
+6-12 mm and up to 8 deg off, always picked from the far-left block (y about 0.15, pan about -45 deg), so the cause
+(far pick, higher tilt, or stack height) is open. `--refine N` (look, pick the block up again, re-place it aimed at
+target minus the measured error) did NOT help: 10.0 mm became 10.4 mm on the other side and the yaw error stayed,
+so the error of a re-picked block is not a fixed bias. It is off by default. Do not run with `--min-gap` below the
+default: at 7 cm the arm bumped the neighbouring block. `trials` also writes `*_moves.csv` (pick position, pan, roll
+and error per move) for fitting the error against the geometry, and `SafeArm` now appends the lowest servo voltage
+to `control/voltage_log.csv`: the 5 V supply sagged to 3.3 V and 2.9 V mid-move and aborted two runs.
