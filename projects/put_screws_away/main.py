@@ -269,12 +269,12 @@ def main():
                     help="speed-up over the usual pace (1.0 = ~25 deg/s; the servos top out near 60 deg/s)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
-    if not 1.0 <= a.speed <= 2.0:
-        raise SystemExit("--speed must be between 1 and 2")
+    if not 1.0 <= a.speed <= 3.0:
+        raise SystemExit("--speed must be between 1 and 3")
     if a.speed > 1.0:
         from core.robot import arm as arm_mod
         motion.TIME_SCALE /= a.speed
-        motion.REAL_SPEED_DEG_S *= a.speed
+        motion.REAL_SPEED_DEG_S = min(60.0, motion.REAL_SPEED_DEG_S * a.speed)
         arm_mod.GOAL_VELOCITY = int(arm_mod.GOAL_VELOCITY * a.speed)
         log.info("speed x%.2f: plans at %.1fx time, moves capped at %.0f deg/s", a.speed, motion.TIME_SCALE,
                  motion.REAL_SPEED_DEG_S)

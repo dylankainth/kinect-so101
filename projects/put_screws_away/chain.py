@@ -48,16 +48,16 @@ def run_chain(batch, params=None, close_time_s=0.8):
                 if max(abs(frames[0][j] - cur[j]) for j in ARM_JOINTS) > 6.0:
                     segmented_move(arm, frames[0], dry_run=False)
                 status(f"{label}: descending")
-                arm.follow(frames[:close], rate_hz=STREAM_HZ)
+                arm.follow(frames[:close], rate_hz=STREAM_HZ, max_step_deg=6.0)
                 n = max(2, int(close_time_s * STREAM_HZ))
                 g0 = frames[close - 1]["gripper"]
                 sweep = [frames[close - 1] | {"gripper": g0 + (GRIP_CLOSED_CMD - g0) * (k + 1) / n} for k in range(n)]
-                arm.follow(sweep, rate_hz=STREAM_HZ)
+                arm.follow(sweep, rate_hz=STREAM_HZ, max_step_deg=6.0)
                 grip = arm.settle_gripper(GRIP_CLOSED_CMD)
                 hold = max(GRIP_CLOSED_CMD, grip - p.grip_squeeze)
                 status(f"{label}: jaws at {grip:.0f}/100, carrying")
                 carry = [f | {"gripper": hold} if f["gripper"] <= GRIP_CLOSED_CMD + 1e-6 else f for f in frames[lift:]]
-                arm.follow(carry, rate_hz=STREAM_HZ)
+                arm.follow(carry, rate_hz=STREAM_HZ, max_step_deg=6.0)
                 ran.append(label)
             status("batch done: folding back to rest")
             segmented_move(arm, rest, dry_run=False)
