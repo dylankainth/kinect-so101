@@ -84,6 +84,8 @@ class SafeArm:
         self.mismatch = {}
         self.stop_requested = None                  # optional callable -> True to abort move_to and hold
         self.low_volt_reads = 0
+        self.volt_log = []   # (seconds since start, lowest servo voltage) per status read, written at exit
+        self._t0 = time.time()
         self.hot_reads = 0
         self.trace = []                             # (t, goal, measured) per follow() step
 
@@ -152,7 +154,26 @@ class SafeArm:
                 self.disable_torque()
         finally:
             self.disconnect()
+            self._save_volt_log()
         return False   # never swallow exceptions / KeyboardInterrupt
+
+    def _save_volt_log(self):
+        """Append this session's lowest-servo-voltage samples to control/voltage_log.csv and log the minimum, so a
+        weak supply shows up as a trend across runs before it causes a fault."""
+        if not self.volt_log:
+            return
+        vmin = min(v for _, v in self.volt_log)
+        log.info("supply: lowest servo voltage %.1f V over %d status reads", vmin, len(self.volt_log))
+        try:
+            path = Path(__file__).resolve().parents[2] / "control" / "voltage_log.csv"
+            new = not path.exists()
+            start = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._t0))
+            with open(path, "a") as f:
+                if new:
+                    f.write("session_start,seconds,volts" + chr(10))
+                f.write("".join(f"{start},{t:.1f},{v:.1f}" + chr(10) for t, v in self.volt_log))
+        except OSError as e:
+            log.warning("could not write the voltage log: %s", e)
 
     # ------------------------------------------------------------------ raw access
     def _unstick(self):
@@ -234,6 +255,7 @@ class SafeArm:
                 log.warning("%s temperature %dC", j, t)
         if "volt" in st:
             vmin = min(st["volt"].values())
+            self.volt_log.append((time.time() - self._t0, vmin))
             self.low_volt_reads = self.low_volt_reads + 1 if vmin < VOLT_LOW_V else 0
             if vmin < VOLT_ABORT_V or self.low_volt_reads >= VOLT_LOW_READS:
                 self.stop()

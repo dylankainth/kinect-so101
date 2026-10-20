@@ -63,6 +63,8 @@ def main():
     ap.add_argument("--count", type=int, default=2, help="blocks in the stack (2 or 3)")
     ap.add_argument("--prefer", type=float, nargs=2, metavar=("X", "Y"), help="move the loose block nearest here "
                     "first, so the other one is the last (top) layer")
+    ap.add_argument("--min-gap", type=float, metavar="CM", help="override the centre-to-centre clearance between "
+                    "blocks (default: the jaw-based one for the object); smaller risks the open jaws brushing a neighbour")
     ap.add_argument("--object", choices=sorted(sb.OBJECTS), default="box8x5")
     ap.add_argument("--base", type=float, nargs=2, metavar=("X", "Y"), help="where the stack is built (default: the "
                     "block nearest the middle of the mat)")
@@ -76,6 +78,9 @@ def main():
     if not a.real:
         ap.error("this drives the real arm: pass --real")
 
+    if a.min_gap:   # Obj.min_gap = long/2 + short/2 + JAW_CLEAR, so this moves it for every Obj built from here on
+        o = sb.Obj(a.object)
+        sb.JAW_CLEAR = a.min_gap / 100 - (o.long + o.short) / 2
     obj = sb.Obj(a.object)
     obs = sb.CameraWorld(obj).observe()
     if len(obs) != a.count or any(b.level != 1 for b in obs):
