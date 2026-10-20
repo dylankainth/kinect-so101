@@ -21,7 +21,7 @@ sm.plan_step = lambda pick, place_xy, place_cz, obj, place_yaw=None, tune=None: 
 
 def args(**kw):
     d = dict(count=3, object="cube3", base=None, blocks=None, look=False, real=True, yes=True, attempts=3,
-             prefer=None, skip_rehearsal=False, show_sim=False, tune=1)
+             prefer=None, skip_rehearsal=False, show_sim=False, tune=1, refine=0)
     d.update(kw)
     return argparse.Namespace(**d)
 
@@ -62,6 +62,68 @@ def run(positions, results, stop_flag=False, obj=OBJ, **kw):
         return str(e), calls
     finally:
         sm.split = real_split
+
+
+def refine_case(top_err, lands, refine=2, camera_sees_top=True, abort=False):
+    """refine_place with a base box at the origin and a top box off by top_err (x, y, yaw). `lands(aim_xy, aim_yaw)`
+    -> where the re-placed box ends up as (xy, yaw). Returns the (aim_xy, aim_yaw) of every re-place."""
+    base = sm.BlockObs(np.zeros(2), OBJ.height, 0.0, 1, 100, (OBJ.long, OBJ.short), OBJ.period)
+    top = sm.BlockObs(np.array(top_err[:2], float), 2 * OBJ.height, top_err[2], 2, 100, (OBJ.long, OBJ.short), OBJ.period)
+    state = dict(top=top)
+    aims = []
+
+    class World:
+        def observe(self):
+            return [base, state["top"]] if camera_sees_top else [base]
+
+    def fake_move(a, obj, pick, xy, cz, level, yaw):
+        aims.append((np.array(xy), yaw))
+        xy2, yaw2 = lands(np.array(xy), yaw)
+        state["top"] = sm.BlockObs(xy2, 2 * OBJ.height, yaw2, 2, 100, (OBJ.long, OBJ.short), OBJ.period)
+        sm.motion.ABORTED = abort
+        return "done"
+
+    real_move, sm.do_move = sm.do_move, fake_move
+    sm.motion.ABORTED = False
+    try:
+        sm.refine_place(argparse.Namespace(refine=refine), World(), OBJ, base, 2, 0.045, 0.0)
+    finally:
+        sm.do_move = real_move
+        sm.motion.ABORTED = False
+    return aims
+
+
+def test_refine():
+    perfect = lambda xy, yaw: (xy, yaw)
+    assert not refine_case((0.002, -0.001, 0.02), perfect)
+    print("refine: within tolerance      -> block left alone")
+
+    bias = lambda xy, yaw: (xy + [-0.0088, 0.001], yaw + np.radians(-3.5))   # the arm's repeatable placement error
+    aims = refine_case((-0.0088, 0.001, np.radians(-3.5)), bias)
+    assert len(aims) == 1, aims
+    assert np.allclose(aims[0][0], [0.0088, -0.001]) and np.isclose(aims[0][1], np.radians(3.5)), aims
+    print("refine: 9 mm / 3.5 deg off    -> one re-place aimed at (target - error)")
+
+    assert not refine_case((0.02, 0, 0), perfect, camera_sees_top=False)
+    print("refine: top block not seen    -> nothing moved")
+
+    stubborn = lambda xy, yaw: (np.array([0.02, 0.0]), 0.0)   # the box always lands 2 cm off
+    assert len(refine_case((0.02, 0, 0), stubborn, refine=2)) == 2
+    print("refine: never converges       -> stops after --refine attempts")
+
+    assert len(refine_case((0.02, 0, 0), stubborn, refine=3, abort=True)) == 1
+    print("refine: abort flag in re-place -> no further attempt")
+
+    # the run must end, not go on to the next block, when a re-place sets the abort flag
+    real_refine = sm.refine_place
+    sm.refine_place = lambda *a, **k: setattr(sm.motion, "ABORTED", True)
+    try:
+        out, calls = run([(0.18, 0.08), (0.24, -0.08), (0.21, -0.02)], ["done"], refine=1)
+    finally:
+        sm.refine_place = real_refine
+        sm.motion.ABORTED = False
+    assert "stopped or faulted" in out and len(calls) == 1, (out, calls)
+    print("refine: abort after refine    -> run ends:", out)
 
 
 def main():
@@ -110,6 +172,7 @@ def main():
     out, calls = run([(0.327, -0.18), (0.333, -0.12), (0.355, 0.038)], ["done"], obj=box, base=(0.26, -0.06))
     assert "Spread the blocks" in out and not calls, out
     print("boxes side by side too close ->", out)
+    test_refine()
     print("ALL OK")
 
 
