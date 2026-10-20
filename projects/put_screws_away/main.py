@@ -111,6 +111,57 @@ def mat_changed(before, after, picked):
     return gone, new
 
 
+def run_chained(a, screws, tray_xy, drop_z):
+    """Plan every reachable screw, pick them all in one arm session, look once, repeat for what is left."""
+    from projects.put_screws_away.chain import run_chain
+    tried = []
+    start = len(screws)
+    for rnd in range(1, a.attempts + 1):
+        batch = []
+        for s in sorted(screws, key=lambda s: -isolation(s, screws)):
+            if attempts_at(tried, s.xy) >= a.attempts or (a.limit and len(batch) >= a.limit):
+                continue
+            plan = plan_screw(s, a, tray_xy, drop_z)
+            if plan is None:
+                continue
+            n_try = attempts_at(tried, s.xy) + 1
+            for t in tried:
+                if np.linalg.norm(t[0] - s.xy) <= RETRY_DIST:
+                    t[0], t[1] = s.xy, n_try
+                    break
+            else:
+                tried.append([s.xy, n_try])
+            frames = keyframes(plan)
+            for f in frames:
+                f["gripper"] = min(f["gripper"], OPEN_REAL)
+            batch.append((f"screw ({s.xy[0]:.3f}, {s.xy[1]:.3f})", frames))
+        if not batch:
+            log.warning("round %d: nothing left that can be planned: %d screw(s) stay on the mat", rnd, len(screws))
+            break
+        log.info("round %d: picking %d screw(s) in one go", rnd, len(batch))
+        if not a.real:
+            log.info("[DRY] planned %d pick(s); not moving the arm", len(batch))
+            return
+        if any(control.is_set(f) for f in (control.STOP, control.PARK, control.LIMP)):
+            raise SystemExit("a STOP/PARK/LIMP flag is set: press 'clear' in stop_gui.py first")
+        if not a.yes and input("Type GO to start: ").strip() != "GO":
+            raise SystemExit("aborted")
+        wait_to_cool()
+        ran = run_chain(batch)
+        if "aborted" in ran or motion.ABORTED:
+            raise SystemExit("motion was stopped or faulted: no more attempts")
+        time.sleep(1.0)
+        after, rgb, tray_after = perceive_screws(kind=a.kind)
+        if tray_after is not None:
+            after = [s for s in after if not over_tray(s.xy, tray_after[0])]
+        draw(rgb, after, control.DIR / "screws_after.jpg")
+        log.info("round %d: %d screw(s) left on the mat", rnd, len(after))
+        screws = after
+        if not screws:
+            break
+    log.info("finished: %d of %d picked, %d screw(s) left on the mat", start - len(screws), start, len(screws))
+
+
 def run(a):
     screws, rgb, tray = perceive_screws(kind=a.kind)
     if tray is None:
@@ -127,6 +178,8 @@ def run(a):
     log.info("I see %d screw(s): %s", len(screws), ", ".join(f"({s.xy[0]:.3f}, {s.xy[1]:+.3f})" for s in screws))
     if a.look:
         return
+    if a.chain:
+        return run_chained(a, screws, tray_xy, drop_z)
     done = fails = tries = 0
     learned = (0.0, 0.0)   # the grasp offset that last worked (see SEARCH)
     tried = []   # [xy, attempts]: attempts on whatever lay within RETRY_DIST of xy (a miss can nudge the screw)
@@ -210,6 +263,8 @@ def main():
     ap.add_argument("--grasp-raise", type=float, default=GRASP_Z_RAISE, metavar="M",
                     help="m above the screw's axis for the grasp point")
     ap.add_argument("--squeeze", type=float, default=2.0, help="0-100 units commanded inside the contact point")
+    ap.add_argument("--chain", action="store_true",
+                    help="pick every reachable screw in one arm session (no rest fold or camera between them)")
     ap.add_argument("--speed", type=float, default=1.0, metavar="X",
                     help="speed-up over the usual pace (1.0 = ~25 deg/s; the servos top out near 60 deg/s)")
     a = ap.parse_args()
