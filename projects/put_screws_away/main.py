@@ -16,7 +16,7 @@ import time
 import numpy as np
 
 from core import control, grasp, motion
-from core.motion import REAL_SPEED_DEG_S, aim, keyframes, wait_to_cool
+from core.motion import REAL_SPEED_DEG_S, aim, fixed_jaw_dir, keyframes, wait_to_cool
 from core.sim.pick_place import plan_pick_place
 from projects.put_screws_away.detect import draw, perceive_screws
 
@@ -33,6 +33,19 @@ GRASP_Z_RAISE = 0.004                # m above the screw's axis for the grasp po
 GONE_DIST = 0.015                    # m: a screw that is not within this of where it was has been picked up
 NEW_DIST = 0.015                     # m: a screw this far from every earlier one is a new (dropped) one
 YAW_PERIOD = np.pi                   # a screw looks the same turned 180 deg
+
+
+RETRY_DIST = 0.03                    # m: a screw this close to one already tried is the same screw, nudged
+
+
+def attempts_at(tried, xy):
+    return max((n for p, n in tried if np.linalg.norm(p - xy) <= RETRY_DIST), default=0)
+
+
+def grasp_offset(n_tried, learned):
+    """The offset for the next attempt: the learned one first, then the SEARCH list (skipping the learned one)."""
+    cands = [learned] + [o for o in SEARCH if o != learned]
+    return cands[n_tried % len(cands)]
 
 
 def isolation(s, screws):
@@ -52,16 +65,35 @@ def pick_drop_point(floor):
     return line[int(np.argmin(np.abs(r - DROP_RADIUS)))]
 
 
-def plan_screw(s, a, tray_xy, drop_z):
+# Grasp offsets (m) tried in turn on a screw that was missed, in the gripper's frame: along = toward the fixed jaw,
+# across = along the jaw faces. The first one the jaws catch on becomes the starting offset for the next screws.
+SEARCH = [(0.0, 0.0), (0.01, 0.0), (-0.01, 0.0), (0.0, 0.01), (0.0, -0.01), (0.01, 0.01), (-0.01, -0.01),
+          (0.01, -0.01), (-0.01, 0.01)]
+NUT_YAWS = np.radians([0, 30, -30, 60, -60, 90])   # jaw directions tried for a nut (it has no length to grasp across)
+
+
+def plan_screw(s, a, tray_xy, drop_z, offset=(0.0, 0.0)):
     """Plan the pick of screw s and the drop over the tray. Returns the plan or None if it cannot be reached."""
-    close_yaw = (s.yaw + np.pi / 2 + YAW_PERIOD / 2) % YAW_PERIOD - YAW_PERIOD / 2   # the jaws close across the length
     pick = aim(np.array([*s.xy, SCREW_Z]), 0.0) + [0, 0, a.grasp_raise]
     drop = aim(np.array([*tray_xy, drop_z]), 0.0)
-    try:
-        return plan_pick_place(pick, drop, block_yaw=close_yaw, yaw_period=YAW_PERIOD, place_z=drop_z)
-    except ValueError as e:
-        log.info("screw at (%.3f, %.3f) cannot be planned: %s", *s.xy, e)
-        return None
+    if a.kind == "nut":
+        yaws = list(NUT_YAWS)
+    else:   # the jaws close across the length
+        yaws = [(s.yaw + np.pi / 2 + YAW_PERIOD / 2) % YAW_PERIOD - YAW_PERIOD / 2]
+    err = None
+    for close_yaw in yaws:
+        try:
+            plan = plan_pick_place(pick, drop, block_yaw=close_yaw, yaw_period=YAW_PERIOD, place_z=drop_z)
+            if offset != (0.0, 0.0):   # shift the aim in the gripper's own frame and plan again
+                u = fixed_jaw_dir(plan)
+                v = np.array([-u[1], u[0]])
+                pick2 = pick + [*(offset[0] * u + offset[1] * v), 0.0]
+                plan = plan_pick_place(pick2, drop, block_yaw=close_yaw, yaw_period=YAW_PERIOD, place_z=drop_z)
+            return plan
+        except ValueError as e:
+            err = e
+    log.info("%s at (%.3f, %.3f) cannot be planned: %s", a.kind, *s.xy, err)
+    return None
 
 
 def mat_changed(before, after, picked):
@@ -72,7 +104,7 @@ def mat_changed(before, after, picked):
 
 
 def run(a):
-    screws, rgb, tray = perceive_screws()
+    screws, rgb, tray = perceive_screws(kind=a.kind)
     if tray is None:
         raise SystemExit("cannot find the tray in the camera image (TRAY_ROI in detect.py)")
     floor, rim_z, _ = tray
@@ -84,14 +116,16 @@ def run(a):
     if a.look:
         return
     done = fails = tries = 0
-    tried = {}   # rounded xy -> attempts
+    learned = (0.0, 0.0)   # the grasp offset that last worked (see SEARCH)
+    tried = []   # [xy, attempts]: attempts on whatever lay within RETRY_DIST of xy (a miss can nudge the screw)
     while screws and not (a.limit and tries >= a.limit):
         order = sorted(screws, key=lambda s: -isolation(s, screws))
         pick, plan = None, None
         for s in order:
-            if tried.get(tuple(np.round(s.xy, 2)), 0) >= a.attempts:
+            if attempts_at(tried, s.xy) >= a.attempts:
                 continue
-            plan = plan_screw(s, a, tray_xy, drop_z)
+            offset = grasp_offset(attempts_at(tried, s.xy), learned) if a.search else (0.0, 0.0)
+            plan = plan_screw(s, a, tray_xy, drop_z, offset)
             if plan is not None:
                 pick = s
                 break
@@ -100,10 +134,16 @@ def run(a):
                         len(screws))
             break
         tries += 1
-        key = tuple(np.round(pick.xy, 2))
-        tried[key] = tried.get(key, 0) + 1
+        n_try = attempts_at(tried, pick.xy) + 1
+        for t in tried:
+            if np.linalg.norm(t[0] - pick.xy) <= RETRY_DIST:
+                t[0], t[1] = pick.xy, n_try
+                break
+        else:
+            tried.append([pick.xy, n_try])
+        log.info("grasp offset along %+.0f / across %+.0f mm", offset[0] * 1000, offset[1] * 1000)
         log.info("=== screw at (%.3f, %.3f), yaw %+.0f deg, %.1f cm from the nearest other (attempt %d) ===",
-                 *pick.xy, np.degrees(pick.yaw), isolation(pick, screws) * 100, tried[key])
+                 *pick.xy, np.degrees(pick.yaw), isolation(pick, screws) * 100, n_try)
         if not a.real:
             log.info("[DRY] planned %d samples; not moving the arm", len(plan))
             screws = [s for s in screws if s is not pick]
@@ -126,12 +166,15 @@ def run(a):
         if result == "aborted" or motion.ABORTED:
             raise SystemExit("motion was stopped or faulted: no more attempts")
         time.sleep(1.0)
-        after, rgb, _ = perceive_screws()
+        after, rgb, _ = perceive_screws(kind=a.kind)
         draw(rgb, after, control.DIR / "screws_after.jpg")
         gone, new = mat_changed(screws, after, pick)
         if new:   # often a screw that was hidden or merged with the picked one: only noted, the next look handles it
             log.info("%d screw(s) newly seen on the mat (uncovered, or dropped on the way)", len(new))
         if gone:
+            if a.search and offset != learned:
+                learned = offset
+                log.info("LEARNED grasp offset along %+.0f / across %+.0f mm", offset[0] * 1000, offset[1] * 1000)
             done += 1
             log.info("PICKED: that screw is off the mat (%d done, %d left on the mat)", done, len(after))
         else:
@@ -143,6 +186,8 @@ def run(a):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--kind", choices=("bolt", "nut"), default="bolt", help="what is on the mat: long bolts/screws, or flat nuts")
+    ap.add_argument("--search", action="store_true", help="on a miss, retry with the grasp shifted 1 cm along/across the jaws")
     ap.add_argument("--look", action="store_true", help="only report what the camera sees")
     ap.add_argument("--real", action="store_true", help="move the real arm")
     ap.add_argument("--yes", action="store_true", help="skip the GO prompts (stop_gui.py must be open)")

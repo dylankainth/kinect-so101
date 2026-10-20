@@ -38,7 +38,11 @@ class Screw:
     px: tuple
 
 
-def find_screws(rgb, intr, T, debug=None, extra_exclude=()):
+# nuts lie flat and look like small compact blobs: (min, max) of the longer side in px, widest the shorter side, max aspect
+NUT = dict(len=(7, 15), max_w=12, max_aspect=1.8, area=(30, 160))
+
+
+def find_screws(rgb, intr, T, debug=None, extra_exclude=(), kind="bolt"):
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
     v = hsv[..., 2].astype(np.float32)
     bg = cv2.medianBlur(hsv[..., 2], 25).astype(np.float32)   # the mat's own brightness (grid lines are thin)
@@ -53,12 +57,15 @@ def find_screws(rgb, intr, T, debug=None, extra_exclude=()):
     out = []
     for i in range(1, n):
         area = stats[i, cv2.CC_STAT_AREA]
-        if not MIN_AREA <= area <= MAX_AREA:
+        if not (NUT["area"] if kind == "nut" else (MIN_AREA, MAX_AREA))[0] <= area <=                 (NUT["area"] if kind == "nut" else (MIN_AREA, MAX_AREA))[1]:
             continue
         pts = np.column_stack(np.nonzero(lab == i))[:, ::-1].astype(np.float32)
         (cx, cy), (w, h), ang = cv2.minAreaRect(pts)
         L, W = max(w, h), max(min(w, h), 1.0)
-        if not MIN_LEN_PX <= L <= MAX_LEN_PX or W > MAX_WIDTH_PX or L / W < MIN_ASPECT:
+        if kind == "nut":
+            if not NUT["len"][0] <= L <= NUT["len"][1] or W > NUT["max_w"] or L / W > NUT["max_aspect"]:
+                continue
+        elif not MIN_LEN_PX <= L <= MAX_LEN_PX or W > MAX_WIDTH_PX or L / W < MIN_ASPECT:
             continue
         # direction of the long side in the image, then through the camera ray at both ends
         th = np.radians(ang if w >= h else ang + 90)
@@ -73,7 +80,7 @@ def find_screws(rgb, intr, T, debug=None, extra_exclude=()):
     return sorted(out, key=lambda s: s.px[1])
 
 
-def perceive_screws(n_frames=5):
+def perceive_screws(n_frames=5, kind="bolt"):
     from core.perception.calibrate import load_calib
 
     def grab():
@@ -96,7 +103,7 @@ def perceive_screws(n_frames=5):
     rgb, intr = kinect_retry(grab, "screw detection")
     T = load_calib()
     tray = find_tray(rgb, grab.depth, intr, T)
-    return find_screws(rgb, intr, T, extra_exclude=(tray[2],) if tray else ()), rgb, tray
+    return find_screws(rgb, intr, T, extra_exclude=(tray[2],) if tray else (), kind=kind), rgb, tray
 
 
 TRAY_ROI = (420, 150, 533, 365)    # u0, v0, u1, v1: where the tray stands on the mat (it is the only white thing there)
