@@ -130,8 +130,9 @@ def find_tray(rgb, depth, intr, T):
     W = P @ T[:3, :3].T + T[:3, 3]
     rim = float(np.percentile(W[:, 2], 98))
     floor = W[W[:, 2] < np.percentile(W[:, 2], 50)]
-    box = (int(st[i, cv2.CC_STAT_LEFT]) - 14, int(st[i, cv2.CC_STAT_TOP]) - 14,
-           int(st[i, cv2.CC_STAT_LEFT] + st[i, cv2.CC_STAT_WIDTH]) + 14, int(st[i, cv2.CC_STAT_TOP] + st[i, cv2.CC_STAT_HEIGHT]) + 14)
+    m_ = 30   # px of margin: the tray's walls and anything lying on its rim are not screws on the mat
+    box = (int(st[i, cv2.CC_STAT_LEFT]) - m_, int(st[i, cv2.CC_STAT_TOP]) - m_,
+           int(st[i, cv2.CC_STAT_LEFT] + st[i, cv2.CC_STAT_WIDTH]) + m_, int(st[i, cv2.CC_STAT_TOP] + st[i, cv2.CC_STAT_HEIGHT]) + m_)
     return floor[:, :2], rim, box
 
 

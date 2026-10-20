@@ -72,6 +72,14 @@ SEARCH = [(0.0, 0.0), (0.01, 0.0), (-0.01, 0.0), (0.0, 0.01), (0.0, -0.01), (0.0
 NUT_YAWS = np.radians([0, 30, -30, 60, -60, 90])   # jaw directions tried for a nut (it has no length to grasp across)
 
 
+TRAY_KEEP_OUT = 0.04   # m beyond the tray's floor in x and y where nothing is ever picked (its walls are there)
+
+
+def over_tray(xy, floor):
+    lo, hi = floor.min(0) - TRAY_KEEP_OUT, floor.max(0) + TRAY_KEEP_OUT
+    return bool(np.all(xy >= lo) and np.all(xy <= hi))
+
+
 def plan_screw(s, a, tray_xy, drop_z, offset=(0.0, 0.0)):
     """Plan the pick of screw s and the drop over the tray. Returns the plan or None if it cannot be reached."""
     pick = aim(np.array([*s.xy, SCREW_Z]), 0.0) + [0, 0, a.grasp_raise]
@@ -108,6 +116,10 @@ def run(a):
     if tray is None:
         raise SystemExit("cannot find the tray in the camera image (TRAY_ROI in detect.py)")
     floor, rim_z, _ = tray
+    on_tray = [s for s in screws if over_tray(s.xy, floor)]
+    if on_tray:
+        log.warning("ignoring %d detection(s) over the tray: %s", len(on_tray), [tuple(np.round(s.xy, 3)) for s in on_tray])
+        screws = [s for s in screws if s not in on_tray]
     tray_xy = pick_drop_point(floor)
     drop_z = rim_z + RIM_CLEAR
     log.info("tray floor centre (%.3f, %.3f), rim %.1f cm: releasing at %.1f cm", *tray_xy, rim_z * 100, drop_z * 100)
@@ -166,7 +178,9 @@ def run(a):
         if result == "aborted" or motion.ABORTED:
             raise SystemExit("motion was stopped or faulted: no more attempts")
         time.sleep(1.0)
-        after, rgb, _ = perceive_screws(kind=a.kind)
+        after, rgb, tray_after = perceive_screws(kind=a.kind)
+        if tray_after is not None:
+            after = [s for s in after if not over_tray(s.xy, tray_after[0])]
         draw(rgb, after, control.DIR / "screws_after.jpg")
         gone, new = mat_changed(screws, after, pick)
         if new:   # often a screw that was hidden or merged with the picked one: only noted, the next look handles it

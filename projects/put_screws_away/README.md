@@ -41,6 +41,17 @@ How it works:
   7 mm grasp height for most bolt directions.
 * Supply: lowest servo voltage 3.8-4.8 V per pick (one dip to 3.8 V), no faults.
 
+* **Afternoon, bolts and a screw:** all lying-flat bolts and the later screw went into the tray (the jaw reading 11-14/100
+  on a held one, 7/100 on a miss). A bolt standing on its end is invisible to the detector (lay it flat).
+* **Nuts** (`--kind nut`, about 1 cm across, compact blobs): 1 of 4 delivered. Every attempt on a nut closes to
+  7/100 (empty) and pushes it a little; a nut drifted 3 cm over 8 attempts. `--search` retries a missed nut with the
+  grasp shifted 10 mm along/across the jaws: one offset caught one nut once and then failed on the next, so it is
+  not a calibration offset. The gripper's pads are probably too big for a 1 cm nut lying flat. Not reliable.
+* **A mistake worth keeping:** the loop picked up a "screw" at the tray's near end (a bolt resting on its rim) and
+  started to descend onto the rim; I killed the process while the arm moved, which leaves it powered and holding.
+  Never kill a run mid-move: use the STOP flag, or wait for the status to say "done"/"parked". Now anything over the
+  tray's footprint plus 4 cm (`TRAY_KEEP_OUT`) is ignored, and the tray's exclusion box has a 30 px margin.
+
 Known limits (dry run on the 9 screws, 2026-10-20):
 
 * At the lowest grasp height (6 mm) about a quarter of the screw directions are out of the arm's reach near the base
