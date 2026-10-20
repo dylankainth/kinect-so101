@@ -1,6 +1,6 @@
 # put_screws_away
 
-Put the screws lying on the mat into the tray. Not yet run on the arm (the 5 V supply is being replaced).
+Put the screws lying on the mat into the tray. Run on the real arm with screws and bolts, see below.
 
 ```
 .venv\Scripts\python -m projects.put_screws_away.main --look   # what does the camera see? -> control/screws.jpg
@@ -24,6 +24,22 @@ How it works:
 * **Judging**: the jaw reading barely changes for a 3 mm screw (empty is about 7/100), so the arm always carries
   and the camera decides: a pick counts when that screw is gone from the mat and no new one appeared. A screw is tried
   `--attempts` times, most isolated first (the open jaws are wide).
+
+## Real-arm results (2026-10-20, afternoon)
+
+* **First try, screws (3 mm):** the jaws read 10/100 (empty is 7) but the run pushed the tray about 4 cm and scattered
+  screws. Cause: the jaws opened to 70/100 inside a 9 cm-wide tray, and the release point was fixed, not measured.
+* **Fixes:** the tray (position, rim height) is found from the camera on every run (`find_tray`, `TRAY_ROI`) and
+  excluded from detection; the release is over the tray's near end (`DROP_RADIUS` 0.26 m from the base, the middle of the
+  floor was out of reach), 4 cm above the rim (`RIM_CLEAR`); the jaws open to 30/100 only (`OPEN_REAL`).
+* **Second try, screws:** the tray stayed put, but the grasp missed (7/100, empty).
+* **Bolts** (about 6 mm shaft, bigger than the screws): 7 on the mat, touching in pairs. Detection: aspect >= 2.5,
+  length 10-28 px (a longer blob is two bolts touching and is skipped). One run, `--attempts 2`: **3 bolts in the
+  tray**, the jaw reading was 11-14/100 on a held bolt and 7/100 on a miss, so for bolts the jaw reading does tell a
+  held one from an empty grasp. Misses and picks were mixed, about 4 attempts per 3 delivered.
+* The 3 bolts left were beside the marker and the arm base (x about 0.16-0.24): the planner cannot reach those at the
+  7 mm grasp height for most bolt directions.
+* Supply: lowest servo voltage 3.8-4.8 V per pick (one dip to 3.8 V), no faults.
 
 Known limits (dry run on the 9 screws, 2026-10-20):
 

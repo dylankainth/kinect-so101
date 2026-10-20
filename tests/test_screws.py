@@ -41,8 +41,9 @@ def main():
     print("detector: empty mat -> nothing (grid lines are not screws)")
 
     screw(img := mat(), np.array([420.0, 250.0]), 90)   # inside the tray's exclusion box
-    assert detect.find_screws(img, INTR, T) == []
-    print("detector: something in the tray is ignored")
+    assert detect.find_screws(img, INTR, T, extra_exclude=((400, 150, 535, 380),)) == []
+    assert len(detect.find_screws(img, INTR, T)) == 1
+    print("detector: something inside the tray's box is ignored")
 
     mk = lambda x, y: detect.Screw(np.array([x, y]), 0.0, 18.0, (0, 0))
     a, b, c = mk(0.25, 0.0), mk(0.30, 0.05), mk(0.30, -0.08)
