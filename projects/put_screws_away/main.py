@@ -210,8 +210,19 @@ def main():
     ap.add_argument("--grasp-raise", type=float, default=GRASP_Z_RAISE, metavar="M",
                     help="m above the screw's axis for the grasp point")
     ap.add_argument("--squeeze", type=float, default=2.0, help="0-100 units commanded inside the contact point")
+    ap.add_argument("--speed", type=float, default=1.0, metavar="X",
+                    help="speed-up over the usual pace (1.0 = ~25 deg/s; the servos top out near 60 deg/s)")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
+    if not 1.0 <= a.speed <= 2.0:
+        raise SystemExit("--speed must be between 1 and 2")
+    if a.speed > 1.0:
+        from core.robot import arm as arm_mod
+        motion.TIME_SCALE /= a.speed
+        motion.REAL_SPEED_DEG_S *= a.speed
+        arm_mod.GOAL_VELOCITY = int(arm_mod.GOAL_VELOCITY * a.speed)
+        log.info("speed x%.2f: plans at %.1fx time, moves capped at %.0f deg/s", a.speed, motion.TIME_SCALE,
+                 motion.REAL_SPEED_DEG_S)
     run(a)
 
 
