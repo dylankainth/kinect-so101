@@ -149,6 +149,7 @@ def main():
             picked = [m for m in moves if m["trial"] == i]   # the block placed last goes back to where it was picked
             if len(picked) != a.count - 1:
                 raise SystemExit(f"trial {i}: logged {len(picked)} moves, expected {a.count - 1}; not unstacking")
+            cur["base"] = None   # the unstacking moves are not trial moves
             for level in range(a.count, 1, -1):
                 home = np.array([picked[level - 2]["pick_x"], picked[level - 2]["pick_y"]])
                 result = unstack(sa, obj, base_xy, home, level=level)
