@@ -20,7 +20,7 @@ from core import control, grasp
 from core.motion import aim, fixed_jaw_dir, keyframes, wait_to_cool
 from core.sim.pick_place import plan_pick_place
 from projects.agent import world as W
-from projects.agent.experience import Experience
+from projects.agent.experience import Experience, placement_reward
 
 log = logging.getLogger("agent.skills")
 
@@ -274,14 +274,14 @@ class SkillBox:
             return Result(False, f"the stack at {tuple(np.round(dest.xy, 3))} is not seen any more; now seen:\n{seen}", self.view())
         if r in ("toppled", "not_on"):
             self.exp.log("stack", r, dz_mm=j["dz"] * 1000, **base)
-            self.exp.learn_release(p["place_raise"], p["release_clear"], False)
+            self.exp.learn_release(p["place_raise"], p["release_clear"], 0.0)
             return Result(False, (f"the block is not lying flat on the stack: its top is {j['dz'] * 100:+.1f} cm from where a flat "
                                   "placement puts it (tilted, standing on an edge, or off the stack)") if r == "toppled" else
                           f"the block is not on the stack: the pile's top is {-j['dz'] * 100:.1f} cm lower than expected",
                           self.view())
         es, el, ey, good = j["es"], j["el"], j["ey"], r == "ok"
         learned = self.exp.learn_placement(es, el, ey, (p["trim_deg"], p["off_short"], p["off_long"]))
-        self.exp.learn_release(p["place_raise"], p["release_clear"], good)
+        self.exp.learn_release(p["place_raise"], p["release_clear"], placement_reward(es, el, ey) if good else 0.0)
         self.exp.log("stack", r, es_mm=es * 1000, el_mm=el * 1000, ey_deg=ey, dz_mm=j["dz"] * 1000, **base)
         if good:
             self.support.append((j["x"].xy.copy(), dest.top_z))

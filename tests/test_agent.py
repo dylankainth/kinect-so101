@@ -220,16 +220,21 @@ def test_experience_learns_and_persists():
     assert abs(e.correction()[1] - s) < 0.003
     assert not e.learn_placement(0.05, 0.0, 0.0, e.correction())    # a placement 5 cm off is a failure, not bias
     for _ in range(12):   # releasing 4 mm higher keeps working, the default keeps failing
-        e.learn_release(0.008, 0.015, False)
-        e.learn_release(0.004, 0.015, True)
+        e.learn_release(0.008, 0.015, 0.1)                 # 8 mm higher sits 14 mm off ...
+        e.learn_release(0.004, 0.015, experience.placement_reward(0.002, 0.001, 1.0))   # ... 4 mm higher sits on the block
     assert e.choose_release(explore=False)[0] == 0.004
     picks = [e.choose_release(explore=True)[0] for _ in range(40)]
-    assert picks.count(0.004) > 25, picks.count(0.004)
+    assert max(set(picks), key=picks.count) == 0.004, picks
     e.log("stack", "ok", es_mm=1.0)
     again = experience.Experience(e.path)
     assert again.correction() == e.correction() and len(again.events) == 1
     assert "1 attempts" in again.summary()
     assert e.choose_release()[0] == 0.004   # no recent trouble: keeps the best one rather than exploring
+    e.log("stack", "toppled")
+    assert e.recent_trouble()               # right after a failure it samples
+    e.log("stack", "ok")
+    assert not e.recent_trouble()           # ... and one success later it is back to the best
+    assert experience.placement_reward(0, 0, 0) == 1.0 and experience.placement_reward(0.015, 0, 0) == 0.0
     # an older file without the sample list is rebuilt from its events
     old = json.loads(e.path.read_text())
     old["state"].pop("samples")

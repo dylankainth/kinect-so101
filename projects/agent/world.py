@@ -3,6 +3,7 @@
 A grounder (grounding.py) says where an object is in the colour image (a pixel box). Here the Kinect depth under that
 box, turned into the robot frame through the calibration, gives the object's position, height, footprint and direction.
 """
+import logging
 import time
 from dataclasses import dataclass
 
@@ -12,6 +13,8 @@ import numpy as np
 from core.perception.calibrate import load_calib
 from core.perception.kinect import Kinect
 from core.perception.util import kinect_retry, xy_from_pixel
+
+log = logging.getLogger("agent.world")
 
 MIN_HEIGHT = 0.008      # m above the table: lower than this is the mat, not the object
 MAX_HEIGHT = 0.30
@@ -55,7 +58,25 @@ class Obj:
                 + (", very thin" if self.flat else ""))
 
 
+KINECT_WAIT_S, KINECT_POLL_S = 1200, 15   # the Kinect sometimes drops off USB for a while: wait this long for it to return
+
+
 def capture(n_frames=5):
+    """One scene from the Kinect. If the device has vanished (USB drop, power), keep trying for KINECT_WAIT_S: the arm is
+    parked, so waiting is safe, and a replugged camera lets the run carry on."""
+    t0 = time.time()
+    while True:
+        try:
+            return _capture(n_frames)
+        except (RuntimeError, TimeoutError) as e:
+            if time.time() - t0 > KINECT_WAIT_S:
+                raise
+            log.warning("no Kinect (%s): waiting for it to come back (replug its USB / power), %d s so far",
+                        e, time.time() - t0)
+            time.sleep(KINECT_POLL_S)
+
+
+def _capture(n_frames=5):
     def grab():
         with Kinect() as kin:
             kin.wait_for_frames(8)

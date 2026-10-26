@@ -34,6 +34,11 @@ MAX_TRIM_DEG, MAX_OFFSET = 25.0, 0.012
 LEARN_XY, LEARN_YAW = 0.015, 20.0                    # a placement worse than this (m, deg) is a failure, not bias
 
 
+def placement_reward(es, el, ey_deg):
+    """1 for a block exactly on the one below, falling linearly to 0 at 15 mm (or 20 deg) off."""
+    return max(0.0, 1 - float(np.hypot(es, el)) / LEARN_XY) * max(0.0, 1 - abs(ey_deg) / LEARN_YAW)
+
+
 class Experience:
     def __init__(self, path=PATH, seed=None):
         self.path = path
@@ -91,7 +96,9 @@ class Experience:
         return pick
 
     def recent_trouble(self):
-        return any(e["kind"] == "stack" and e["result"] != "ok" for e in self.events[-3:])
+        """The last stacking attempt did not come out ok (a success right after puts it back on the best release)."""
+        ev = [e for e in self.events if e["kind"] == "stack"]
+        return bool(ev) and ev[-1]["result"] != "ok"
 
     def choose_release(self, explore=None):
         """(place_raise, release_clear). explore None: sample only after a recent failure; True: sample; False: the best so far."""
@@ -108,10 +115,13 @@ class Experience:
             best.append(values[max(range(len(values)), key=mean)])
         return tuple(best)
 
-    def learn_release(self, place_raise, release_clear, stayed):
+    def learn_release(self, place_raise, release_clear, reward):
+        """reward in 0..1: 0 = the block fell off or toppled, 1 = it sits exactly on the one below (see placement_reward)."""
+        reward = float(reward)
         for key, v, values in (("raise_counts", place_raise, PLACE_RAISES), ("clear_counts", release_clear, RELEASE_CLEARS)):
             c = self.state[key].setdefault(repr(v), [2, 1] if v == values[0] else [1, 1])
-            c[0 if stayed else 1] += 1
+            c[0] += reward
+            c[1] += 1.0 - reward
 
     # -- the record -------------------------------------------------------------------------------------------------
     def log(self, kind, result, **info):
