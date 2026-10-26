@@ -245,30 +245,46 @@ class SkillBox:
         why = ("is still where it started" if near_start else "left its place but is not at the target")
         return Result(False, f"{o.label} {why}. Ids were reassigned; now seen:\n{seen}", self.view())
 
-    def verify_stack(self, o, dest, objs, info, base, seen):
-        p = info["params"]
-        expect = dest.top_z + info["thick"]
+    def judge_stack(self, dest, objs, thick):
+        """What the camera shows at the stack: dict(result = ok | off | toppled | not_on | lost, ...)."""
+        expect = dest.top_z + thick
         top = [x for x in objs if np.linalg.norm(x.xy - dest.xy) < 0.04]
         if not top:
-            self.exp.log("stack", "lost", **base)
-            return Result(False, f"the stack at {tuple(np.round(dest.xy, 3))} is not seen any more; now seen:\n{seen}", self.view())
+            return dict(result="lost")
         x = min(top, key=lambda x: np.linalg.norm(x.xy - dest.xy))
         dz = x.top_z - expect
         if dz > STACK_Z_ABOVE or dz < -STACK_Z_BELOW:
-            self.exp.log("stack", "toppled" if dz > 0 else "not_on", dz_mm=dz * 1000, **base)
-            self.exp.learn_release(p["place_raise"], p["release_clear"], False)
-            return Result(False, ("the block is not lying flat on the stack: its top is " + f"{dz * 100:+.1f} cm from where a flat "
-                                  "placement puts it (tilted, standing on an edge, or off the stack)") if dz > 0 else
-                          (f"the block is not on the stack: the pile's top is {-dz * 100:.1f} cm lower than expected"),
-                          self.view())
+            return dict(result="toppled" if dz > 0 else "not_on", x=x, dz=dz)
         es, el, ey = placement_error(dest, x)
         good = abs(es) <= STACK_XY_OK and abs(el) <= STACK_XY_OK and abs(ey) <= STACK_YAW_OK
-        learned = self.exp.learn_placement(es, el, ey)
+        return dict(result="ok" if good else "off", x=x, dz=dz, es=es, el=el, ey=ey)
+
+    def verify_stack(self, o, dest, objs, info, base, seen):
+        p = info["params"]
+        j = self.judge_stack(dest, objs, info["thick"])
+        if j["result"] in ("lost", "toppled", "not_on"):   # the Kinect sometimes drops out: look once more before believing it
+            time.sleep(2.0)
+            objs2 = self.observe([o.label, dest.label])
+            j2 = self.judge_stack(dest, objs2, info["thick"])
+            if j2["result"] in ("ok", "off"):
+                j, objs, seen = j2, objs2, "\n".join(x.describe() for x in objs2)
+        r = j["result"]
+        if r == "lost":
+            self.exp.log("stack", "lost", **base)
+            return Result(False, f"the stack at {tuple(np.round(dest.xy, 3))} is not seen any more; now seen:\n{seen}", self.view())
+        if r in ("toppled", "not_on"):
+            self.exp.log("stack", r, dz_mm=j["dz"] * 1000, **base)
+            self.exp.learn_release(p["place_raise"], p["release_clear"], False)
+            return Result(False, (f"the block is not lying flat on the stack: its top is {j['dz'] * 100:+.1f} cm from where a flat "
+                                  "placement puts it (tilted, standing on an edge, or off the stack)") if r == "toppled" else
+                          f"the block is not on the stack: the pile's top is {-j['dz'] * 100:.1f} cm lower than expected",
+                          self.view())
+        es, el, ey, good = j["es"], j["el"], j["ey"], r == "ok"
+        learned = self.exp.learn_placement(es, el, ey, (p["trim_deg"], p["off_short"], p["off_long"]))
         self.exp.learn_release(p["place_raise"], p["release_clear"], good)
-        self.exp.log("stack", "ok" if good else "off", es_mm=es * 1000, el_mm=el * 1000, ey_deg=ey,
-                     dz_mm=dz * 1000, **base)
+        self.exp.log("stack", r, es_mm=es * 1000, el_mm=el * 1000, ey_deg=ey, dz_mm=j["dz"] * 1000, **base)
         if good:
-            self.support.append((x.xy.copy(), dest.top_z))
+            self.support.append((j["x"].xy.copy(), dest.top_z))
         t, s_, l_ = self.exp.correction()
         return Result(good, f"{o.label} is on the stack: {es * 1000:+.1f} mm across, {el * 1000:+.1f} mm along, "
                             f"{ey:+.1f} deg of yaw from the block under it"

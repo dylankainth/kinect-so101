@@ -117,7 +117,7 @@ def test_close_yaw_and_error_frame():
 
 def make_box(real=False, after=None, results=("done",), exp=None):
     sc = scene_with([(0.03, flat_box(*BASE_XY)), (0.03, flat_box(*LOOSE_XY))])
-    caps = [sc] + ([after] if after else [])
+    caps = [sc] + (list(after) if isinstance(after, (list, tuple)) else [after] if after else [])
     state = dict(n=0, runs=[])
 
     def capture():
@@ -173,6 +173,19 @@ def test_stack_success_is_measured_and_learned():
     assert abs(info["thick"] - 0.03) < 0.007 and abs(info["pick_c"][2] - 0.045) < 0.007, info
 
 
+def test_a_second_look_rescues_a_camera_dropout():
+    glitch = scene_with([(0.03, flat_box(*BASE_XY))])     # the loose box vanished: looks like "not on the stack"
+    box, _ = make_box(real=True, after=[glitch, stacked_scene(dy=0.002)])
+    objs = {o.xy[1] > -0.1: o for o in box.observe()}
+    import time as _t
+    real_sleep, _t.sleep = _t.sleep, lambda s_: None
+    try:
+        r = box.call("move_object", dict(object_id=objs[False].id, to_object=objs[True].id))
+    finally:
+        _t.sleep = real_sleep
+    assert r.ok and box.exp.events[-1]["result"] == "ok", r.text
+
+
 def test_toppled_block_is_reported_not_learned():
     box, _ = make_box(real=True, after=stacked_scene(height=0.11))
     objs = {o.xy[1] > -0.1: o for o in box.observe()}
@@ -195,20 +208,36 @@ def test_missed_grasp_is_recorded_and_aborts_are_errors():
 
 def test_experience_learns_and_persists():
     e = make_exp()
-    for _ in range(6):   # always 6 deg too far round and 4 mm to one side: the correction walks to cancel it
-        e.learn_placement(0.004, 0.0, 6.0)
-    trim, s, _ = e.correction()
-    assert trim < experience.START_TRIM_DEG - 5 and s < -0.003, (trim, s)
-    assert not e.learn_placement(0.05, 0.0, 0.0)          # a placement 5 cm off is a failure, not bias
+    # a robot that really lands 4 mm too far across and has yaw error = 5 + 0.87 * trim (best trim -5.7 deg)
+    for _ in range(8):
+        trim, off_s, off_l = e.correction()
+        assert e.learn_placement(0.004 + off_s, 0.0 + off_l, 5.0 + 0.87 * trim, (trim, off_s, off_l))
+    trim, s, l = e.correction()
+    assert -8.5 < trim < -6.0 and -0.0036 < s < -0.0022 and abs(l) < 0.0005, (trim, s, l)
+    for _ in range(40):   # pure scatter around no bias does not walk the correction away from where it settled
+        before = e.correction()
+        e.learn_placement(float(np.random.default_rng(0).normal(0, 0.005)), 0.0, 0.0, before)
+    assert abs(e.correction()[1] - s) < 0.003
+    assert not e.learn_placement(0.05, 0.0, 0.0, e.correction())    # a placement 5 cm off is a failure, not bias
     for _ in range(12):   # releasing 4 mm higher keeps working, the default keeps failing
         e.learn_release(0.008, 0.015, False)
         e.learn_release(0.004, 0.015, True)
-    picks = [e.choose_release()[0] for _ in range(40)]
+    assert e.choose_release(explore=False)[0] == 0.004
+    picks = [e.choose_release(explore=True)[0] for _ in range(40)]
     assert picks.count(0.004) > 25, picks.count(0.004)
     e.log("stack", "ok", es_mm=1.0)
     again = experience.Experience(e.path)
     assert again.correction() == e.correction() and len(again.events) == 1
     assert "1 attempts" in again.summary()
+    assert e.choose_release()[0] == 0.004   # no recent trouble: keeps the best one rather than exploring
+    # an older file without the sample list is rebuilt from its events
+    old = json.loads(e.path.read_text())
+    old["state"].pop("samples")
+    old["events"] = [dict(kind="stack", result="ok", es_mm=4.0, el_mm=0.0, ey_deg=0.0,
+                          params=dict(trim_deg=experience.START_TRIM_DEG, off_short=0.0, off_long=0.0))] * 6
+    e.path.write_text(json.dumps(old))
+    rebuilt = experience.Experience(e.path)
+    assert rebuilt.correction()[1] < -0.0020, rebuilt.correction()
 
 
 class ScriptedClient:

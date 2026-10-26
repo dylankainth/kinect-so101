@@ -24,6 +24,7 @@ BOX_TOP = 0.03          # m: a flat box's top face is 3 cm above the table
 BOX_SIZE = (0.08, 0.05)
 PREFERRED_BASE = np.array([0.26, -0.05])
 MIN_GAP = 0.09          # m centre to centre: the open jaws are wide
+HOME = np.array([0.28, 0.115])   # where the loose box is put back each trial (fixed, so the unstack target cannot drift)
 UNSTACK_SPOTS = ((0, 0), (0.01, 0), (0.01, 0.01), (0.02, 0), (0.02, 0.01), (-0.01, 0.01))   # m around where it was picked from
 
 
@@ -62,9 +63,38 @@ def check_flags():
         raise SystemExit("a STOP/PARK/LIMP flag is set or the arm faulted: stopping")
 
 
+def unstack_to_home(box, tag):
+    """Take the top block off the stack and put it at HOME (trying a few spots around it if one is out of reach)."""
+    res = None
+    for dx, dy in UNSTACK_SPOTS:
+        check_flags()
+        tops = [o for o in box.observe() if o.base_z > 0]
+        if not tops:
+            return False, "the camera does not see a stack to take apart"
+        top = tops[0]
+        res = box.call("move_object", dict(object_id=top.id, to_xy=[HOME[0] + dx, HOME[1] + dy], how=SET_DOWN))
+        log.info("  %s to (%.3f, %.3f): %s %s", tag, HOME[0] + dx, HOME[1] + dy, "OK" if res.ok else "FAILED", res.text)
+        if res.ok or "not reachable" not in res.text:
+            break
+    return res.ok, res.text
+
+
+def take_apart_existing_stack(box):
+    """If a 2-high stack of the two boxes is standing (a previous run stopped with it built), take it apart first."""
+    for o in box.observe():
+        if not ignorable(o) and abs(o.top_z - 2 * BOX_TOP) < 0.012 and abs(o.length - BOX_SIZE[0]) < 0.02:
+            box.support.append((o.xy.copy(), BOX_TOP))
+            log.info("a stack is standing at (%.3f, %.3f): taking it apart first", *o.xy)
+            ok, text = unstack_to_home(box, "initial unstack")
+            if not ok:
+                raise SystemExit("could not take the existing stack apart: " + text)
+            time.sleep(1.0)
+            return
+
+
 def trial(box, i):
     base, loose = table_state(box)
-    home = loose.xy.copy()
+    home = HOME
     log.info("TRIAL %d: stack %s at (%.3f, %.3f) on %s at (%.3f, %.3f)", i, loose.id, *loose.xy, base.id, *base.xy)
     row = dict(trial=i)
     for attempt in range(1, 4):
@@ -78,18 +108,7 @@ def trial(box, i):
     row["stack_text"] = res.text
     if not res.ok:
         return row
-    for dx, dy in UNSTACK_SPOTS:
-        check_flags()
-        tops = [o for o in box.observe() if o.base_z > 0]
-        if not tops:
-            row["unstack_ok"], row["unstack_text"] = False, "the camera does not see a stack to take apart"
-            return row
-        top = tops[0]
-        res = box.call("move_object", dict(object_id=top.id, to_xy=[home[0] + dx, home[1] + dy], how=SET_DOWN))
-        log.info("  unstack to (%.3f, %.3f): %s %s", home[0] + dx, home[1] + dy, "OK" if res.ok else "FAILED", res.text)
-        if res.ok or "not reachable" not in res.text:
-            break
-    row["unstack_ok"], row["unstack_text"] = res.ok, res.text
+    row["unstack_ok"], row["unstack_text"] = unstack_to_home(box, "unstack")
     return row
 
 
@@ -107,6 +126,8 @@ def main():
         res = box.call("move_object", dict(object_id=loose.id, to_object=base.id, how=SET_DOWN))
         print(("OK: " if res.ok else "FAILED: ") + res.text)
         return
+    take_apart_existing_stack(box)
+    n_before = len(box.exp.events)
     rows, failed_in_a_row = [], 0
     for i in range(1, a.n + 1):
         rows.append(trial(box, i))
@@ -121,6 +142,14 @@ def main():
     print(f"\n{ok} of {len(rows)} trials stacked and unstacked cleanly")
     for r in rows:
         print(f"  trial {r['trial']}: stack {'ok' if r.get('stack_ok') else 'FAILED'}: {r.get('stack_text', '')}")
+    errs = [(e["es_mm"], e["el_mm"], e["ey_deg"]) for e in box.exp.events[n_before:]
+            if e["kind"] == "stack" and "es_mm" in e]
+    if len(errs) >= 4:
+        h = len(errs) // 2
+        for name, part in (("first half", errs[:h]), ("second half", errs[h:])):
+            a_ = np.array(part)
+            print(f"  {name:11s}: across {a_[:, 0].mean():+5.1f} +- {a_[:, 0].std():.1f} mm, along {a_[:, 1].mean():+5.1f} "
+                  f"+- {a_[:, 1].std():.1f} mm, yaw {a_[:, 2].mean():+5.1f} +- {a_[:, 2].std():.1f} deg")
 
 
 if __name__ == "__main__":
