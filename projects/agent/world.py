@@ -16,6 +16,7 @@ from core.perception.util import kinect_retry, xy_from_pixel
 MIN_HEIGHT = 0.008      # m above the table: lower than this is the mat, not the object
 MAX_HEIGHT = 0.30
 MIN_POINTS = 40
+TOP_BAND = 0.006       # m below the highest pixels that still belong to the top face (side faces seen at an angle are lower)
 
 
 @dataclass
@@ -45,10 +46,13 @@ class Obj:
     width: float          # footprint, m (short side)
     yaw: float            # direction of the long side, rad, robot frame
     flat: bool = False    # too little depth to measure (a thin object): position only, from the table plane
+    base_z: float = 0.0   # height of what it rests on (0 = the table); top_z - base_z is its own thickness
 
     def describe(self):
-        return (f"{self.id} ({self.label}): at x={self.xy[0]:.3f} y={self.xy[1]:+.3f} m, {self.length * 100:.1f} x "
-                f"{self.width * 100:.1f} cm footprint, {self.top_z * 100:.1f} cm tall" + (", very thin" if self.flat else ""))
+        return (f"{self.id} ({self.label}): at x={self.xy[0]:.3f} y={self.xy[1]:+.3f} m, top face {self.length * 100:.1f} x "
+                f"{self.width * 100:.1f} cm, top {self.top_z * 100:.1f} cm above the table"
+                + (f", resting on something {self.base_z * 100:.1f} cm high" if self.base_z else "")
+                + (", very thin" if self.flat else ""))
 
 
 def capture(n_frames=5):
@@ -71,32 +75,36 @@ def capture(n_frames=5):
     return Scene(rgb, depth, intr, load_calib())
 
 
-def measure(scene, label, box, obj_id=None, pts=None):
-    """3D facts about the object inside the pixel box, or None if nothing stands there."""
+def measure(scene, label, box, obj_id=None, pts=None, mask=None):
+    """3D facts about the object inside the pixel box, or None if nothing stands there. mask: HxW bool, only these pixels.
+    Position, size and direction come from the top face alone."""
     u0, v0, u1, v1 = (int(round(x)) for x in box)
     h, w = scene.depth.shape
     u0, u1, v0, v1 = max(u0, 0), min(u1, w), max(v0, 0), min(v1, h)
     if u1 - u0 < 2 or v1 - v0 < 2:
         return None
     pts = scene.points() if pts is None else pts
-    P = pts[v0:v1, u0:u1].reshape(-1, 3)
-    P = P[np.isfinite(P).all(1)]
-    P = P[(P[:, 2] > MIN_HEIGHT) & (P[:, 2] < MAX_HEIGHT)]
+    P = pts[v0:v1, u0:u1]
+    ok = np.isfinite(P).all(-1) & (P[..., 2] > MIN_HEIGHT) & (P[..., 2] < MAX_HEIGHT)
+    if mask is not None:
+        ok &= mask[v0:v1, u0:u1]
+    P = P[ok]
     oid = obj_id or label
     if len(P) < MIN_POINTS:   # thin: take the box centre on the table plane
         c = xy_from_pixel(scene.intr, scene.T, ((u0 + u1) / 2, (v0 + v1) / 2), 0.002)
         return Obj(oid, label, (u0, v0, u1, v1), c, 0.004, 0.0, 0.0, 0.0, flat=True)
-    top = float(np.percentile(P[:, 2], 95))
-    P = P[P[:, 2] > 0.5 * top]   # the object's own body, not the table edge or something behind it
-    xy = P[:, :2].astype(np.float32)
-    keep = np.linalg.norm(xy - np.median(xy, axis=0), axis=1) < 0.15
-    xy = xy[keep]
-    if len(xy) < MIN_POINTS:
+    ztop = float(np.percentile(P[:, 2], 95))
+    top = P[P[:, 2] >= ztop - TOP_BAND]
+    mm = (top[:, :2] * 1000).astype(np.float32)
+    keep = np.linalg.norm(mm - np.median(mm, axis=0), axis=1) < 150
+    mm = mm[keep]
+    if len(mm) < MIN_POINTS // 2:
         return None
-    (cx, cy), (rw, rh), ang = cv2.minAreaRect(xy)
-    L, W = max(rw, rh), min(rw, rh)
+    (cx, cy), (rw, rh), ang = cv2.minAreaRect(mm)
+    L, W = max(rw, rh) / 1000, min(rw, rh) / 1000
     th = np.radians(ang if rw >= rh else ang + 90)
-    return Obj(oid, label, (u0, v0, u1, v1), np.array([cx, cy]), top, float(L), float(W), float(th))
+    return Obj(oid, label, (u0, v0, u1, v1), np.array([cx, cy]) / 1000, float(np.median(top[:, 2])), float(L), float(W),
+               float(th))
 
 
 def annotate(rgb, objs, path=None):

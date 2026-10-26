@@ -33,13 +33,17 @@ def main():
     ap.add_argument("--look", action="store_true", help="only detect and measure, then exit")
     ap.add_argument("--real", action="store_true", help="move the real arm (default: plan only)")
     ap.add_argument("--yes", action="store_true", help="do not ask GO before each move")
+    ap.add_argument("--grounder", choices=("vision", "depth"), default="vision",
+                    help="vision: a model names and boxes objects (any object, needs the network); depth: every loose "
+                         "object standing above the table, from depth alone (no network, objects are all called block)")
     ap.add_argument("--model", default=llm.DEFAULT_MODEL)
     ap.add_argument("--steps", type=int, default=12, help="most skill calls before giving up")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
-    client = llm.make_client()
+    client = None if (a.look and a.grounder == "depth") else llm.make_client()   # --look with depth needs no network
     confirm = (lambda what: True) if a.yes else (lambda what: input(f"{what}\nType GO to start: ").strip() == "GO")
-    box = SkillBox(grounding.VisionGrounder(a.model, client), real=a.real, confirm=confirm)
+    grounder = grounding.VisionGrounder(a.model, client) if a.grounder == "vision" else grounding.DepthGrounder()
+    box = SkillBox(grounder, real=a.real, confirm=confirm)
     if a.look:
         return look(box)
 

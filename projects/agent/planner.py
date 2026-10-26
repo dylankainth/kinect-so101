@@ -17,7 +17,7 @@ Rules:
 - Object ids change on every look; always use ids from the most recent list.
 - One skill call per turn. Read the result: it is checked by the camera. If a move failed, look again, then retry
   (a different approach is fine) at most twice before giving up on that object.
-- The gripper can only grasp objects up to 5 cm across and 15 cm tall, and can only pick up and put down. If the
+- The gripper can only grasp objects whose top face is up to 6 cm across and up to 15 cm tall, and can only pick up and put down. If the
   task needs something the skills cannot do (flipping, pushing, pouring), say so with `finish` rather than trying
   something unsafe.
 - Never reposition things the task does not mention. Call `finish` as soon as the task is done or cannot be done."""
@@ -51,7 +51,8 @@ def run_task(task, box, client, model=DEFAULT_MODEL, max_steps=12):
     tools = [tool(s) for s in box.tool_specs() + [FINISH]]
     first = box.call("look", {})
     messages = [{"role": "system", "content": SYSTEM},
-                {"role": "user", "content": [{"type": "text", "text": f"Task: {task}\n\nCurrent scene:\n{first.text}"}]
+                {"role": "user", "content": [{"type": "text", "text": f"Task: {task}\n\nCurrent scene:\n{first.text}\n\n"
+                                                                       f"What the arm has learned so far: {box.exp.summary()}"}]
                  + ([image_part(first.image)] if first.image is not None else [])}]
     for step in range(max_steps):
         resp = client.chat.completions.create(model=model, max_tokens=2000, tools=tools, messages=messages)
