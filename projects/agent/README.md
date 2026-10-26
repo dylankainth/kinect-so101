@@ -3,9 +3,10 @@
 Type a task, the arm does it. An LLM plans over a small library of skills; the Kinect checks every step.
 
 ```
-.venv\Scripts\python -m projects.agent.main                                   # what does the grounder see?
+.venv\Scripts\python -m projects.agent.main                                   # prompt: type tasks (plan only)
+.venv\Scripts\python -m projects.agent.main --look                             # what does the grounder see?
 .venv\Scripts\python -m projects.agent.main "put the cube in the tray"        # plan only, arm not touched
-.venv\Scripts\python -m projects.agent.main "put the cube in the tray" --real # real arm (stop_gui.py open)
+.venv\Scripts\python -m projects.agent.main --real                            # prompt with the real arm (stop_gui.py open)
 .venv\Scripts\python -m tests.test_agent                                      # no hardware, no network
 ```
 
