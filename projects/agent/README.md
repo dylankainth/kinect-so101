@@ -27,3 +27,26 @@ Layers:
 Not tried on the real arm yet. Limits: objects up to 5 cm across and 15 cm tall (`MAX_GRASP_WIDTH` is a guess from the
 sim's ~6 cm open jaws), top-down-ish grasps only, so "flip the box" is refused rather than attempted. New skills (push,
 rotate, regrasp) go in `SkillBox.skills` with a JSON schema.
+
+## As an MCP server (plug the arm into Claude)
+
+`mcp_server.py` makes Claude the planner and the vision model; no API key or network is needed on this side.
+
+```
+claude mcp add kinect-arm -- C:\Users\dylan\Documents\GitHub\kinect-so101\.venv\Scripts\python.exe -m projects.agent.mcp_server          # dry run: nothing moves
+claude mcp add kinect-arm -- C:\Users\dylan\Documents\GitHub\kinect-so101\.venv\Scripts\python.exe -m projects.agent.mcp_server --real   # moves the real arm (keep core/tools/stop_gui.py open)
+```
+
+Tools: `look` (picture with robot-frame marks, loose objects from depth), `locate(u, v)` (pixel -> robot position and height),
+`move_object` (the proven grasp/stack path), `write_skill` / `rehearse_skill` / `run_skill` / `skill_outcome` / `list_skills` /
+`read_skill` (skills written on the fly), `stop_arm`, `arm_status`.
+
+A skill is a short Python function over a few arm calls (`primitives.py`): `arm.move(x, y, z, tilt, roll, yaw, speed)`,
+`arm.jaws(opening)`, `arm.grasp()`, `arm.wait(s)`, `arm.reach_ok(...)`. The flow is write -> rehearse -> run -> look -> record the verdict:
+
+* **Checked before it exists.** The code may not import, loop with `while`, or reach into attributes. It cannot move the arm any way except the arm calls. (This stops mistakes; it is not a sandbox against hostile code.)
+* **Rehearsed before it moves.** `rehearse_skill` solves IK for every waypoint and checks the workspace box (x 0.12..0.36, |y| <= 0.25, z 0.006..0.20), reach, link-to-table clearance, speed (<= 0.15 m/s), per-frame joint steps, step count and duration, and returns a picture of the path. `run_skill` refuses anything that was not rehearsed with the same code and arguments, and needs a fresh rehearsal after every run.
+* **Run like the proven path.** It streams through SafeArm (STOP/PARK/LIMP honoured, load/temperature/voltage aborts), a `grasp()` that closes on nothing stops the skill, and the arm folds to rest at the end.
+* **Kept and improved.** Skills live in `skill_library/<name>.py` with a record of each run and the planner's verdict; rewriting one keeps the old code as `.prev.py`.
+
+`python -m tests.test_mcp` runs all of this without hardware, including the tools through an in-process MCP client.

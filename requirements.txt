@@ -3,3 +3,4 @@ opencv-python
 comtypes
 cython
 openai
+mcp>=2
