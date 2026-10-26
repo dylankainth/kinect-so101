@@ -1,0 +1,22 @@
+{
+ "description": "pull a box toward the robot (-x) with the outer face of the fixed pad, closed jaws, along y from x_from to x_to at pad height z",
+ "params": {
+  "x_from": "0.335",
+  "x_to": "0.25",
+  "y": "0.115",
+  "z": "0.024",
+  "speed": "0.04"
+ },
+ "created": "2026-10-26 21:06",
+ "runs": [
+  {
+   "at": "2026-10-26 21:07",
+   "args": {
+    "y": 0.122
+   },
+   "result": "finished. ",
+   "worked": true,
+   "notes": "box moved from x=0.281,y=0.122 to x=0.185,y=0.089: pulled 9.6 cm toward the robot (about 2 cm past the pad end), drifted 3 cm toward y=0 and turned a little; contact works with tip='fixed'"
+  }
+ ]
+}
