@@ -48,11 +48,17 @@ Workflow:
    visible. Never assume a move worked.
 
 The arm object in a skill (units: metres, radians, seconds):
-  arm.move(x, y, z, tilt=None, roll=None, yaw=None, speed=0.08)  straight-line move of the grasp point
+  arm.move(x, y, z, tilt=None, roll=None, yaw=None, speed=0.08, tip="grasp")  straight-line move of the grasp point, or
+                                   with tip="fixed"/"moving" of the centre of that pad (see below)
   arm.jaws(opening, seconds=0.8)   0 shut .. 1 wide open (about 8 cm between the pads)
   arm.grasp(expect=True)           close slowly on what is between the jaws and hold; stops the skill if it closes on nothing
-  arm.wait(seconds), arm.pos, arm.reach_ok(x, y, z), arm.log(text)
+  arm.wait(seconds), arm.pos, arm.reach_ok(x, y, z), arm.pad_offset("fixed"), arm.log(text)
 Only these, `math`, for-loops over range(), if/else, plain functions and arithmetic are allowed (no imports, no while).
+
+The pads are NOT at the grasp point: one jaw is fixed, the other swings, and the pads sit centimetres to the side of it.
+A skill that must touch something with the hand (pushing with the closed jaws, pressing, hooking a corner) has to use
+tip="fixed" or tip="moving" so that pad, not the grasp point, goes where you say. (A first push aimed with the grasp point
+passed the arm cleanly over a box without touching it.)
 
 Things learned on this arm: for the boxes, the grasp point went 8 mm above the object's centre, coming straight down from
 above with the jaws wide open. The grasp point is not the middle of the open jaws (one jaw is fixed, the other swings), so

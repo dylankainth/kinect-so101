@@ -79,6 +79,25 @@ def test_tilt_is_chosen_where_the_tool_cannot_stay_vertical():
     assert arm.tilt >= 0.0 and arm.pos[2] == 0.08
 
 
+def test_a_pad_can_be_aimed_instead_of_the_grasp_point():
+    import mujoco
+    for which, pad in (("fixed", "fixed_pad"), ("moving", "moving_pad")):
+        arm = P.Recorder()
+        arm.jaws(0.0)
+        arm.move(0.276, 0.06, 0.05)
+        arm.move(0.276, 0.16, 0.02, tip=which, speed=0.04)
+        k = arm.k
+        k.d.qpos[:] = 0
+        k.d.qpos[k.qadr[:5]] = arm.rec.events[-1].q[-1]
+        k.d.qpos[k.qadr[5]] = 0.0
+        mujoco.mj_kinematics(k.m, k.d)
+        got = k.d.geom_xpos[k.m.geom(pad).id]
+        assert np.abs(got - [0.276, 0.16, 0.02]).max() < 0.004, (which, got)
+        if which == "fixed":
+            assert np.linalg.norm(np.array(arm.pad_offset(which))[:2]) > 0.01    # the fixed pad is 2 cm or more off the grasp point
+    assert "tip must be" in refused("def run(arm):\n    arm.move(0.28, 0, 0.1, tip='elbow')")
+
+
 def test_a_rehearsal_streams_to_the_real_arm_in_small_steps():
     rec = P.rehearse(PICK)
     last = None

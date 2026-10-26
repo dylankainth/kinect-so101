@@ -23,6 +23,7 @@ import ast
 import builtins
 import hashlib
 import inspect
+import json
 import logging
 import math
 import time
@@ -148,12 +149,18 @@ class Recorder:
         if not math.isfinite(tilt) or abs(tilt) > MAX_TILT:
             raise SkillError(f"tilt {tilt:.2f} rad is outside +-{MAX_TILT}")
 
-    def move(self, x, y, z, tilt=None, roll=None, yaw=None, speed=0.08):
+    def move(self, x, y, z, tilt=None, roll=None, yaw=None, speed=0.08, tip="grasp"):
         """Move the grasp point (midway between the fingertips) in a straight line to (x, y, z) metres.
 
         tilt: approach angle in rad from straight down (positive leans the fingertips away from the base); by default the
         current tilt is kept if it reaches, else the least tilted one that does. roll: wrist roll in rad. yaw: instead of roll, the direction (rad, robot frame, 0 = along +x) the
-        jaws close along. speed: m/s, 0.01..0.15. The tilt and roll change smoothly along the move."""
+        jaws close along. speed: m/s, 0.01..0.15. The tilt and roll change smoothly along the move.
+        tip: which point of the hand goes to (x, y, z): "grasp" (the point midway between the open pads, the default),
+        or "fixed" / "moving" for the centre of that pad at the current jaw opening. One jaw is fixed and the other swings,
+        so the pads are centimetres away from the grasp point and the offset turns with the arm: use tip="fixed" or
+        "moving" whenever a pad (or the closed jaws) must touch something, as when pushing."""
+        if tip not in ("grasp", "fixed", "moving"):
+            raise SkillError('tip must be "grasp", "fixed" or "moving"')
         x, y, z = float(x), float(y), float(z)
         speed = float(speed)
         if not MIN_SPEED <= speed <= MAX_SPEED:
@@ -166,6 +173,13 @@ class Recorder:
             roll = self.k.roll_for_yaw(q4, float(yaw), math.pi)
         roll = self.roll if roll is None else float(roll)
         tilt = self._pick_tilt(target, roll) if auto else float(tilt)
+        if tip != "grasp":      # aim the grasp point so that the chosen pad ends on (x, y, z)
+            want = target
+            for _ in range(3):
+                target = want - self._pad_offset(target, self._pick_tilt(target, roll) if auto else tilt, roll, tip)
+            if auto:
+                tilt = self._pick_tilt(target, roll)
+            x, y, z = (float(v) for v in target)
         self._check_box(x, y, z, tilt)
         if not self.k.lo[4] <= roll <= self.k.hi[4]:
             raise SkillError(f"roll {roll:.2f} rad is outside {self.k.lo[4]:.2f}..{self.k.hi[4]:.2f}")
@@ -197,6 +211,23 @@ class Recorder:
                              f"{MAX_FRAME_STEP_DEG}); lower the speed or split the move")
         self.q, self.xyz, self.tilt, self.roll = Q[-1][:5].copy(), target, tilt, roll
         self.rec.events.append(Move(Q, np.array(xyz_out), not self.holding))
+
+    def _pad_offset(self, gp, tilt, roll, which):
+        """Vector (m) from the grasp point to the centre of a pad when the grasp point is at gp, at the current jaws."""
+        import mujoco
+        k = self.k
+        q4 = self._solve(gp, tilt, roll)
+        k.d.qpos[:] = 0
+        k.d.qpos[k.qadr[:5]] = np.append(q4, roll)
+        k.d.qpos[k.qadr[5]] = self.opening * OPEN_SIM
+        mujoco.mj_kinematics(k.m, k.d)
+        pad = k.d.geom_xpos[k.m.geom("fixed_pad" if which == "fixed" else "moving_pad").id]
+        return pad - k.d.site_xpos[k.site]
+
+    def pad_offset(self, which="fixed"):
+        """(dx, dy, dz) in metres from the grasp point to the centre of the "fixed" or "moving" pad at the current pose and
+        jaw opening: where that pad is relative to arm.pos."""
+        return tuple(float(v) for v in self._pad_offset(self.xyz, self.tilt, self.roll, which))
 
     def _pick_tilt(self, xyz, roll):
         """The approach tilt for a target when the skill gives none: keep the current one if it reaches, else the least
@@ -422,6 +453,13 @@ def real_frames(q5, grip_cmd):
     return frames
 
 
+def save_trace(arm):
+    """Commanded vs measured joints of the run, for working out why a skill did not do what the rehearsal showed."""
+    if arm.trace:
+        t0 = arm.trace[0][0]
+        (control.DIR / "skill_trace.json").write_text(json.dumps([dict(t=t - t0, goal=g, pos=p) for t, g, p in arm.trace]))
+
+
 def execute(rec, cool=wait_to_cool):
     """Stream a passed rehearsal through the real arm. Returns an Outcome; 'aborted' means the arm is held or parked."""
     notes, ok = [], True
@@ -468,12 +506,14 @@ def execute(rec, cool=wait_to_cool):
             segmented_move(arm, rest, dry_run=False)
             time.sleep(0.5)
             arm.disable_torque()
+            save_trace(arm)
         except BaseException as ex:  # noqa: BLE001  STOP, safety abort, anything
             log.error("skill aborted: %r", ex)
             try:
                 arm.stop()
             except Exception:  # noqa: BLE001
                 pass
+            save_trace(arm)
             hold_until_user(arm, rest, str(ex) or type(ex).__name__)
             return Outcome(False, notes + [f"aborted: {ex or type(ex).__name__}. The arm is held or parked: do not continue."])
     return Outcome(ok, notes)
