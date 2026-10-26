@@ -1,15 +1,14 @@
 """Open-vocabulary grounding: a text description -> pixel boxes in the colour image.
 
-The Grounder interface is one method, so a local detector (Grounding DINO + SAM, OWL-ViT) can replace the Claude
+The Grounder interface is one method, so a local detector (Grounding DINO + SAM, OWL-ViT) can replace the language-model
 vision backend without touching the skills or the planner.
 """
-import base64
 import json
 import re
 
 import cv2
 
-DEFAULT_MODEL = "claude-sonnet-5-5"
+from projects.agent.llm import DEFAULT_MODEL, data_url, make_client
 
 PROMPT = """This is a {w}x{h} pixel colour image from a camera looking down at a robot's workspace (a table, the robot arm at the top).
 {ask}
@@ -24,25 +23,21 @@ class Grounder:
         raise NotImplementedError
 
 
-class ClaudeGrounder(Grounder):
+class VisionGrounder(Grounder):
+    """Asks a vision-language model (through OpenRouter) for boxes."""
     def __init__(self, model=DEFAULT_MODEL, client=None):
-        if client is None:
-            import anthropic
-            client = anthropic.Anthropic()
-        self.client, self.model = client, model
+        self.client, self.model = client or make_client(), model
 
     def detect(self, rgb, queries=None):
         h, w = rgb.shape[:2]
         ask = ("Find: " + "; ".join(queries) + ". Include every match." if queries
                else "List every loose object on the table that the robot could pick up.")
-        ok, jpg = cv2.imencode(".jpg", cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-        img = base64.standard_b64encode(jpg.tobytes()).decode()
-        msg = self.client.messages.create(
+        msg = self.client.chat.completions.create(
             model=self.model, max_tokens=1500,
             messages=[{"role": "user", "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img}},
+                {"type": "image_url", "image_url": {"url": data_url(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))}},
                 {"type": "text", "text": PROMPT.format(w=w, h=h, ask=ask)}]}])
-        return parse_boxes("".join(b.text for b in msg.content if b.type == "text"), w, h)
+        return parse_boxes(msg.choices[0].message.content or "", w, h)
 
 
 def parse_boxes(text, w, h):

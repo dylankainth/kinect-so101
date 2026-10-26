@@ -9,11 +9,12 @@ Type a task, the arm does it. An LLM plans over a small library of skills; the K
 .venv\Scripts\python -m tests.test_agent                                      # no hardware, no network
 ```
 
-Needs `ANTHROPIC_API_KEY` and a network connection (planner and vision grounder). The arm and camera are local.
+Needs `OPENROUTER_API_KEY` and a network connection (planner and vision grounder). `OPENROUTER_MODEL` or `--model` picks
+the model (any OpenRouter model that takes images and tool calls; the default slug in `llm.py` is unverified). The arm and camera are local.
 
 Layers:
 
-* **Grounding** (`grounding.py`): description -> pixel box. `ClaudeGrounder` asks a vision model for boxes; the
+* **Grounding** (`grounding.py`): description -> pixel box. `VisionGrounder` asks a vision model for boxes; the
   `Grounder` interface is one method, so Grounding DINO / OWL-ViT can replace it.
 * **Measuring** (`world.py`): the Kinect depth under a box, through the calibration, gives the object's position,
   height, footprint and direction in the robot frame.

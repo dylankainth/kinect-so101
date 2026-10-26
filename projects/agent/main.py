@@ -4,13 +4,14 @@
     .venv\Scripts\python -m projects.agent.main "put the glass next to the tray"  # plan with the arm untouched
     .venv\Scripts\python -m projects.agent.main "..." --real                      # real arm (keep core/tools/stop_gui open)
 
-Needs ANTHROPIC_API_KEY and a network connection for the planner and the vision grounder (the arm and camera are local).
+Needs OPENROUTER_API_KEY and a network connection for the planner and the vision grounder (the arm and camera are local).
+OPENROUTER_MODEL (or --model) picks the model; it must accept images and tool calls.
 """
 import argparse
 import logging
 
 from core import control
-from projects.agent import grounding, planner
+from projects.agent import grounding, llm, planner
 from projects.agent.skills import SkillBox
 from projects.agent.world import annotate
 
@@ -20,14 +21,13 @@ def main():
     ap.add_argument("task", nargs="?", help="what to do, in plain language; without it, only look")
     ap.add_argument("--real", action="store_true", help="move the real arm (default: plan only)")
     ap.add_argument("--yes", action="store_true", help="do not ask GO before each move")
-    ap.add_argument("--model", default=planner.DEFAULT_MODEL)
+    ap.add_argument("--model", default=llm.DEFAULT_MODEL)
     ap.add_argument("--steps", type=int, default=12, help="most skill calls before giving up")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s", datefmt="%H:%M:%S")
-    import anthropic
-    client = anthropic.Anthropic()
+    client = llm.make_client()
     confirm = (lambda what: True) if a.yes else (lambda what: input(f"{what}\nType GO to start: ").strip() == "GO")
-    box = SkillBox(grounding.ClaudeGrounder(a.model, client), real=a.real, confirm=confirm)
+    box = SkillBox(grounding.VisionGrounder(a.model, client), real=a.real, confirm=confirm)
     if not a.task:
         res = box.look()
         print(res.text)

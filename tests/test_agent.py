@@ -2,6 +2,7 @@
 
     .venv\Scripts\python -m tests.test_agent
 """
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -125,16 +126,17 @@ def test_real_verify():
 
 
 class ScriptedClient:
-    """Plays a fixed list of (tool, input) calls, one per turn, and records what it was shown."""
+    """Plays a fixed list of (tool, input) calls, one per turn, and records the messages it was sent."""
     def __init__(self, script):
         self.script, self.i, self.seen = script, 0, []
-        self.messages = SimpleNamespace(create=self.create)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
 
     def create(self, **kw):
-        self.seen.append(kw["messages"][-1])
+        self.seen.append(list(kw["messages"]))
         name, args = self.script[self.i]
         self.i += 1
-        return SimpleNamespace(content=[SimpleNamespace(type="tool_use", id=f"t{self.i}", name=name, input=args)])
+        call = SimpleNamespace(id=f"t{self.i}", function=SimpleNamespace(name=name, arguments=json.dumps(args)))
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[call]))])
 
 
 def test_planner_loop():
@@ -143,8 +145,9 @@ def test_planner_loop():
                              ("finish", {"success": True, "summary": "cube in tray"})])
     ok, summary = planner.run_task("put the cube in the tray", box, client, max_steps=5)
     assert ok and summary == "cube in tray"
-    shown = client.seen[1]["content"][0]
-    assert shown["type"] == "tool_result" and not shown["is_error"] and "dry run" in shown["content"][0]["text"]
+    tool_msg = [m for m in client.seen[1] if m["role"] == "tool"][0]
+    assert tool_msg["content"].startswith("OK:") and "dry run" in tool_msg["content"]
+    assert client.seen[1][-1]["role"] == "user" and client.seen[1][-1]["content"][1]["type"] == "image_url"
     ok, _ = planner.run_task("x", box, ScriptedClient([("look", {})] * 3), max_steps=3)
     assert not ok
 
